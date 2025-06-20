@@ -1,0 +1,25 @@
+import React from 'react';
+
+const PHASES = [
+  { key: 'introduction', label: 'Introduction' },
+  { key: 'core_topics', label: 'Core Topics' },
+  { key: 'dsa_problem', label: 'DSA Problem' },
+  { key: 'wrap_up', label: 'Wrap-up' }
+];
+
+export default function InterviewProgressBar({ phase }) {
+  const currentIdx = PHASES.findIndex(p => p.key === phase);
+  return (
+    <div className="flex items-center space-x-2 py-2 px-4">
+      {PHASES.map((p, idx) => (
+        <React.Fragment key={p.key}>
+          <div className={`flex items-center space-x-1 ${idx <= currentIdx ? 'font-bold text-orange-600' : 'text-gray-400'}`}>
+            <span className={`w-2 h-2 rounded-full ${idx <= currentIdx ? 'bg-orange-500' : 'bg-gray-300'}`}></span>
+            <span className="text-sm">{p.label}</span>
+          </div>
+          {idx < PHASES.length - 1 && <span className="text-gray-300">→</span>}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+} 

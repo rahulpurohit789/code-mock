@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import { useTheme } from '../hooks/useTheme';
 
-const AddTestCaseModal = ({ isOpen, onClose, onAdd, isDarkMode, onTestInput }) => {
-  const { colors } = useTheme(isDarkMode);
+const AddTestCaseModal = ({ isOpen, onClose, onAdd, isDarkMode, onTestInput, themeColors }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -36,12 +34,12 @@ const AddTestCaseModal = ({ isOpen, onClose, onAdd, isDarkMode, onTestInput }) =
       {/* Modal */}
       <div 
         className="relative rounded-lg shadow-xl max-w-md w-full mx-4"
-        style={{ backgroundColor: colors.background.secondary }}
+        style={{ backgroundColor: themeColors.background.secondary }}
       >
         <div className="p-6">
           <h3 
             className="text-lg font-medium mb-4"
-            style={{ color: colors.text.primary }}
+            style={{ color: themeColors.text.primary }}
           >
             Add Test Case
           </h3>
@@ -51,7 +49,7 @@ const AddTestCaseModal = ({ isOpen, onClose, onAdd, isDarkMode, onTestInput }) =
               <div>
                 <label 
                   className="block text-sm font-medium mb-1"
-                  style={{ color: colors.text.secondary }}
+                  style={{ color: themeColors.text.secondary }}
                 >
                   Input
                 </label>
@@ -60,9 +58,9 @@ const AddTestCaseModal = ({ isOpen, onClose, onAdd, isDarkMode, onTestInput }) =
                   onChange={(e) => setInput(e.target.value)}
                   className="w-full px-3 py-2 rounded-md font-mono text-sm"
                   style={{
-                    backgroundColor: colors.background.primary,
-                    color: colors.text.primary,
-                    border: `1px solid ${colors.border.secondary}`,
+                    backgroundColor: themeColors.background.primary,
+                    color: themeColors.text.primary,
+                    border: `1px solid ${themeColors.border.secondary}`,
                   }}
                   rows={3}
                   placeholder="Enter input value(s) e.g. [2,7,11,15]"
@@ -75,25 +73,26 @@ const AddTestCaseModal = ({ isOpen, onClose, onAdd, isDarkMode, onTestInput }) =
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded-md text-sm font-medium transition-colors duration-150"
+                className="px-4 py-2 rounded-md text-sm font-medium"
                 style={{
-                  backgroundColor: colors.button.secondary.background,
-                  color: colors.button.secondary.text,
+                  backgroundColor: themeColors.background.primary,
+                  color: themeColors.text.primary,
+                  border: `1px solid ${themeColors.border.primary}`,
                 }}
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                disabled={!input.trim() || isLoading}
-                className="px-4 py-2 rounded-md text-sm font-medium transition-colors duration-150"
+                disabled={isLoading || !input.trim()}
+                className="px-4 py-2 rounded-md text-sm font-medium"
                 style={{
-                  backgroundColor: colors.button.primary.background,
-                  color: colors.button.primary.text,
-                  opacity: !input.trim() || isLoading ? 0.7 : 1,
+                  backgroundColor: themeColors.text.accent,
+                  color: '#ffffff',
+                  opacity: isLoading || !input.trim() ? 0.7 : 1,
                 }}
               >
-                {isLoading ? 'Adding...' : 'Add Test Case'}
+                {isLoading ? 'Adding...' : 'Add'}
               </button>
             </div>
           </form>

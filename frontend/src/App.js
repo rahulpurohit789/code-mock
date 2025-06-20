@@ -8,12 +8,13 @@ import SubmissionPanel from './components/SubmissionPanel';
 import Header from './components/Header';
 import Footer from './components/Footer';
 import ResizeWrapper from './components/ResizeWrapper';
+import ChatBox from './components/ChatBox';
 import './styles/split.css';
 import './styles/scrollbar.css';
-import { useTheme } from './hooks/useTheme';
 import axios from 'axios';
 import MonacoEditor from '@monaco-editor/react';
 import TabButton from './components/TabButton';
+import InterviewProgressBar from './components/InterviewProgressBar';
 
 // Debounce helper function with RAF
 const rafDebounce = (fn) => {
@@ -43,6 +44,10 @@ function App() {
   const [activeTab, setActiveTab] = useState('testcase'); // 'testcase' or 'result'
   const [showSubmission, setShowSubmission] = useState(false);
   const editorRef = useRef(null);
+  const [isResizing, setIsResizing] = useState(false);
+  const [descriptionHeight, setDescriptionHeight] = useState(50); // percentage
+  const resizeRef = useRef(null);
+  const [interviewPhase, setInterviewPhase] = useState('introduction');
 
   // Refs for split instances
   const horizontalSplitRef = useRef(null);
@@ -73,7 +78,21 @@ function App() {
     };
   }, []);
 
-  const { colors } = useTheme(isDarkMode);
+  const themeColors = {
+    background: {
+      primary: isDarkMode ? '#121212' : '#ffffff',
+      secondary: isDarkMode ? '#1e1e1e' : '#f5f5f5',
+    },
+    text: {
+      primary: isDarkMode ? '#ffffff' : '#000000',
+      secondary: isDarkMode ? '#a0a0a0' : '#666666',
+      accent: '#ff8c00',
+    },
+    border: {
+      primary: isDarkMode ? '#333333' : '#e0e0e0',
+      secondary: isDarkMode ? '#404040' : '#d0d0d0',
+    },
+  };
 
   const handleCodeChange = (newCode) => {
     setCode(newCode);
@@ -242,7 +261,7 @@ public:
   };
 
   const toggleTheme = () => {
-    setIsDarkMode(!isDarkMode);
+    setIsDarkMode(prev => !prev);
   };
 
   const handleAddTestCase = (testCase) => {
@@ -278,9 +297,67 @@ public:
     editorRef.current = editor;
   };
 
+  const handleMouseDown = (e) => {
+    setIsResizing(true);
+    e.preventDefault();
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isResizing) return;
+    
+    const container = resizeRef.current.parentElement;
+    const containerHeight = container.clientHeight;
+    const mouseY = e.clientY;
+    const containerTop = container.getBoundingClientRect().top;
+    
+    let newHeight = ((mouseY - containerTop) / containerHeight) * 100;
+    newHeight = Math.min(Math.max(newHeight, 20), 80); // Limit between 20% and 80%
+    
+    setDescriptionHeight(newHeight);
+  };
+
+  const handleMouseUp = () => {
+    setIsResizing(false);
+  };
+
+  React.useEffect(() => {
+    if (isResizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
+
+  // Fetch interview phase on mount and after reset
+  useEffect(() => {
+    axios.get('http://localhost:3001/api/progress', { withCredentials: true })
+      .then(res => setInterviewPhase(res.data.phase))
+      .catch(() => setInterviewPhase('introduction'));
+  }, []);
+
+  // Add a reset handler
+  const handleResetInterview = async () => {
+    await axios.post('http://localhost:3001/api/reset', {}, { withCredentials: true });
+    window.location.reload();
+  };
+
   return (
-    <div className={`h-screen flex flex-col`} style={{ backgroundColor: colors.background.primary }}>
+    <div className="h-screen flex flex-col" style={{ backgroundColor: themeColors.background.primary }}>
       <Header isDarkMode={isDarkMode} toggleTheme={toggleTheme} />
+
+      {/* Progress Bar and Reset Button */}
+      <div className="flex items-center justify-between bg-white dark:bg-[#1e1e1e] border-b px-4 py-2" style={{ borderColor: themeColors.border.primary }}>
+        <InterviewProgressBar phase={interviewPhase} />
+        <button
+          onClick={handleResetInterview}
+          className="px-3 py-1 rounded bg-orange-500 text-white hover:bg-orange-600 text-sm"
+        >
+          Reset Interview
+        </button>
+      </div>
 
       <main className="flex-1 px-4 py-2 sm:px-6 lg:px-8">
         <ResizeWrapper>
@@ -298,16 +375,15 @@ public:
             onDrag={handleSplitDrag}
             ref={horizontalSplitRef}
           >
-            {/* Left side - Problem Description & Submission Results */}
-            <div className="h-full overflow-hidden flex flex-col" style={{ backgroundColor: colors.background.secondary }}>
-              {/* Tabs */}
-              <div className="flex border-b" style={{ borderColor: colors.border.primary }}>
+            {/* Left side */}
+            <div className="h-full overflow-hidden flex flex-col" style={{ backgroundColor: themeColors.background.secondary }}>
+              <div className="flex border-b" style={{ borderColor: themeColors.border.primary }}>
                 <button
                   onClick={() => setShowSubmission(false)}
-                  className={`px-4 py-2 text-sm font-medium transition-colors duration-150 border-b-2`}
+                  className="px-4 py-2 text-sm font-medium transition-colors duration-150 border-b-2"
                   style={{
-                    color: !showSubmission ? colors.text.primary : colors.text.secondary,
-                    borderColor: !showSubmission ? colors.text.accent : 'transparent'
+                    color: !showSubmission ? themeColors.text.primary : themeColors.text.secondary,
+                    borderColor: !showSubmission ? themeColors.text.accent : 'transparent'
                   }}
                 >
                   Description
@@ -315,32 +391,51 @@ public:
                 {submissionResult && (
                   <button
                     onClick={() => setShowSubmission(true)}
-                    className={`px-4 py-2 text-sm font-medium transition-colors duration-150 border-b-2`}
+                    className="px-4 py-2 text-sm font-medium transition-colors duration-150 border-b-2"
                     style={{
-                      color: showSubmission ? colors.text.primary : colors.text.secondary,
-                      borderColor: showSubmission ? colors.text.accent : 'transparent'
+                      color: showSubmission ? themeColors.text.primary : themeColors.text.secondary,
+                      borderColor: showSubmission ? themeColors.text.accent : 'transparent'
                     }}
                   >
                     Submission
                   </button>
                 )}
               </div>
-
-              {/* Content */}
               <div className="flex-1 overflow-hidden">
                 {showSubmission ? (
                   <SubmissionPanel
                     result={submissionResult}
                     isDarkMode={isDarkMode}
                     onClose={() => setShowSubmission(false)}
+                    themeColors={themeColors}
                   />
                 ) : (
-                  <ProblemPanel
-                    onSendMessage={handleChatMessage}
-                    isDarkMode={isDarkMode}
-                    problemDescription={problemDescription}
-                    testCases={testCases}
-                  />
+                  <Split
+                    direction="vertical"
+                    sizes={[60, 40]}
+                    minSize={[200, 150]}
+                    gutterSize={8}
+                    className="split-wrapper h-full"
+                    style={{ display: 'flex', flexDirection: 'column' }}
+                    onDrag={handleSplitDrag}
+                  >
+                    {/* Problem Description */}
+                    <div className="overflow-hidden">
+                      <ProblemPanel
+                        isDarkMode={isDarkMode}
+                        problemDescription={problemDescription}
+                        testCases={testCases}
+                      />
+                    </div>
+
+                    {/* Chat Interface */}
+                    <div className="overflow-hidden">
+                      <ChatBox
+                        isDarkMode={isDarkMode}
+                        onSendMessage={handleChatMessage}
+                      />
+                    </div>
+                  </Split>
                 )}
               </div>
             </div>
@@ -363,16 +458,16 @@ public:
               >
                 {/* Code Editor Section */}
                 <div className="w-full h-full overflow-hidden">
-                  <div className="flex justify-between items-center mb-2 p-2" style={{ backgroundColor: colors.background.secondary }}>
+                  <div className="flex justify-between items-center mb-2 p-2" style={{ backgroundColor: themeColors.background.secondary }}>
                     <div className="flex items-center space-x-4">
                       <select
                         value={language}
                         onChange={(e) => handleLanguageChange(e.target.value)}
                         className="px-3 py-1 rounded-md"
                         style={{
-                          backgroundColor: colors.background.primary,
-                          color: colors.text.primary,
-                          borderColor: colors.border.secondary,
+                          backgroundColor: themeColors.background.primary,
+                          color: themeColors.text.primary,
+                          borderColor: themeColors.border.secondary,
                         }}
                       >
                         <option value="python">Python</option>
@@ -388,8 +483,8 @@ public:
                         disabled={isLoading}
                         className="px-4 py-1 rounded-md transition-colors duration-150"
                         style={{
-                          backgroundColor: colors.button.secondary.background,
-                          color: colors.button.secondary.text,
+                          backgroundColor: themeColors.border.primary,
+                          color: themeColors.text.primary,
                           opacity: isLoading ? 0.7 : 1,
                         }}
                       >
@@ -400,8 +495,8 @@ public:
                         disabled={isLoading}
                         className="px-4 py-1 rounded-md transition-colors duration-150"
                         style={{
-                          backgroundColor: colors.button.primary.background,
-                          color: colors.button.primary.text,
+                          backgroundColor: themeColors.text.accent,
+                          color: themeColors.text.primary,
                           opacity: isLoading ? 0.7 : 1,
                         }}
                       >
@@ -416,38 +511,36 @@ public:
                       language={language}
                       onCodeChange={handleCodeChange}
                       isDarkMode={isDarkMode}
-                      functionTemplate={functionTemplate}
+                      themeColors={themeColors}
                     />
                   </div>
                 </div>
 
                 {/* Test Cases and Results Section */}
-                <div className="w-full h-full overflow-hidden">
-                  {/* Tabs */}
-                  <div className="flex px-2" style={{ backgroundColor: colors.background.primary, borderBottom: `1px solid ${colors.border.primary}` }}>
-                    <button
+                <div className="w-full overflow-hidden">
+                  <div className="flex border-b" style={{ borderColor: themeColors.border.primary }}>
+                    <TabButton
+                      isActive={activeTab === 'testcase'}
                       onClick={() => setActiveTab('testcase')}
-                      className={`px-4 py-2 text-sm font-medium transition-colors duration-150`}
                       style={{
-                        color: activeTab === 'testcase' ? colors.text.primary : colors.text.secondary,
-                        borderBottom: activeTab === 'testcase' ? `2px solid ${colors.text.accent}` : 'none',
+                        color: activeTab === 'testcase' ? themeColors.text.primary : themeColors.text.secondary,
+                        borderColor: activeTab === 'testcase' ? themeColors.text.accent : 'transparent'
                       }}
                     >
-                      Testcase
-                    </button>
-                    <button
+                      Test Cases
+                    </TabButton>
+                    <TabButton
+                      isActive={activeTab === 'result'}
                       onClick={() => setActiveTab('result')}
-                      className={`px-4 py-2 text-sm font-medium transition-colors duration-150`}
                       style={{
-                        color: activeTab === 'result' ? colors.text.primary : colors.text.secondary,
-                        borderBottom: activeTab === 'result' ? `2px solid ${colors.text.accent}` : 'none',
+                        color: activeTab === 'result' ? themeColors.text.primary : themeColors.text.secondary,
+                        borderColor: activeTab === 'result' ? themeColors.text.accent : 'transparent'
                       }}
                     >
-                      Result
-                    </button>
+                      Results
+                    </TabButton>
                   </div>
 
-                  {/* Panel Content */}
                   <div className="h-[calc(100%-40px)] overflow-hidden">
                     {activeTab === 'testcase' ? (
                       <TestCasePanel
@@ -457,11 +550,13 @@ public:
                         isDarkMode={isDarkMode}
                         onAddTestCase={handleAddTestCase}
                         onTestInput={handleTestInput}
+                        themeColors={themeColors}
                       />
                     ) : (
                       <TestResultPanel
                         output={output}
                         isDarkMode={isDarkMode}
+                        themeColors={themeColors}
                       />
                     )}
                   </div>
