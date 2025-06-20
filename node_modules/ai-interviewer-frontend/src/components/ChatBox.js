@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 
-function ChatBox({ onSendMessage, isDarkMode }) {
+function ChatBox({ onSendMessage, isDarkMode, onDSAProblemReceived }) {
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -59,6 +59,11 @@ function ChatBox({ onSendMessage, isDarkMode }) {
         type: 'bot',
         content: response.data.response
       }]);
+
+      // Handle DSA problem data if present
+      if (response.data.dsaProblem && onDSAProblemReceived) {
+        onDSAProblemReceived(response.data.dsaProblem);
+      }
     } catch (error) {
       console.error('Error:', error);
       // Add error message

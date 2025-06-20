@@ -90,7 +90,7 @@ const TestResultPanel = ({ output, isDarkMode, themeColors }) => {
                   border: `1px solid ${themeColors.border.primary}`
                 }}
               >
-                {currentTestResult.output}
+                {currentTestResult.actualOutput}
               </pre>
             </div>
 
@@ -104,7 +104,7 @@ const TestResultPanel = ({ output, isDarkMode, themeColors }) => {
                   border: `1px solid ${themeColors.border.primary}`
                 }}
               >
-                {currentTestResult.expected}
+                {currentTestResult.expectedOutput}
               </pre>
             </div>
           </div>

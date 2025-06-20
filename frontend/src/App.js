@@ -39,7 +39,6 @@ function App() {
   const [testCases, setTestCases] = useState([]);
   const [hiddenTestCases, setHiddenTestCases] = useState([]);
   const [problemDescription, setProblemDescription] = useState('');
-  const [functionTemplate, setFunctionTemplate] = useState('');
   const [activeTestCase, setActiveTestCase] = useState(0);
   const [activeTab, setActiveTab] = useState('testcase'); // 'testcase' or 'result'
   const [showSubmission, setShowSubmission] = useState(false);
@@ -100,11 +99,6 @@ function App() {
 
   const handleLanguageChange = (newLanguage) => {
     setLanguage(newLanguage);
-    // Update function template based on language
-    if (functionTemplate) {
-      // This will be handled by the AI to provide language-specific templates
-      console.log('Language changed, updating template...');
-    }
   };
 
   const handleChatMessage = async (message) => {
@@ -150,28 +144,57 @@ Explanation: Because nums[0] + nums[1] == 9, we return [0, 1].`);
 
     // Set language-specific function templates
     const templates = {
-      python: `def solution(nums, target):
-    # Write your code here
+      python: `def solution(input_data):
+    """
+    TODO: Implement your solution here
+    
+    Args:
+        input_data: List of student objects with name and scores
+        
+    Returns:
+        List of student objects with name and calculated grade
+    """
+    # Your code here
+    # Example: input_data = [{"name": "Alice", "scores": [85, 92, 78, 96]}]
+    # Expected: [{"name": "Alice", "grade": 91}]
     pass`,
-      javascript: `function solution(nums, target) {
-    // Write your code here
+      javascript: `function solution(input_data) {
+    /**
+     * TODO: Implement your solution here
+     * 
+     * @param {Array} input_data - Array of student objects with name and scores
+     * @returns {Array} Array of student objects with name and calculated grade
+     */
+    // Your code here
 }`,
       java: `class Solution {
-    public int[] solution(int[] nums, int target) {
-        // Write your code here
-        return new int[]{};
+    /**
+     * TODO: Implement your solution here
+     * 
+     * @param input_data List of student objects with name and scores
+     * @return List of student objects with name and calculated grade
+     */
+    public Object solution(Object input_data) {
+        // Your code here
+        return null;
     }
 }`,
       cpp: `class Solution {
 public:
-    vector<int> solution(vector<int>& nums, int target) {
-        // Write your code here
+    /**
+     * TODO: Implement your solution here
+     * 
+     * @param input_data List of student objects with name and scores
+     * @return List of student objects with name and calculated grade
+     */
+    auto solution(auto input_data) {
+        // Your code here
         return {};
     }
 };`
     };
 
-    setFunctionTemplate(templates[language]);
+    setCode(templates[language]);
   };
 
   const executeCode = async (isSubmission = false) => {
@@ -190,7 +213,7 @@ public:
         ? [...testCases, ...hiddenTestCases]  // Include hidden test cases for submission
         : testCases;  // Only visible test cases for regular test runs
 
-      const response = await axios.post('http://localhost:5000/api/code/execute', {
+      const response = await axios.post('http://localhost:3001/api/code/execute', {
         code: code.trim(),
         language,
         testCases: testCasesToUse,
@@ -199,7 +222,7 @@ public:
 
       if (response.data.success) {
         if (isSubmission) {
-          setSubmissionResult(response.data.data);
+          setSubmissionResult(response.data);
           setShowSubmission(true);
         } else {
           // For regular test runs, only show results for visible test cases
@@ -209,6 +232,7 @@ public:
         }
       } else {
         const errorOutput = {
+          success: false,
           error: response.data.error,
           details: response.data.details
         };
@@ -222,6 +246,7 @@ public:
     } catch (error) {
       console.error('Error executing code:', error);
       const errorOutput = {
+        success: false,
         error: 'Failed to execute code',
         details: error.response?.data?.message || error.message
       };
@@ -333,15 +358,95 @@ public:
 
   // Fetch interview phase on mount and after reset
   useEffect(() => {
-    axios.get('http://localhost:3001/api/progress', { withCredentials: true })
-      .then(res => setInterviewPhase(res.data.phase))
-      .catch(() => setInterviewPhase('introduction'));
+    // Auto-reset interview session on page load
+    const resetAndInitialize = async () => {
+      try {
+        await axios.post('http://localhost:3001/api/reset', {}, { withCredentials: true });
+        console.log('🔄 Interview session reset on page load');
+        setInterviewPhase('introduction');
+      } catch (error) {
+        console.error('Error resetting interview session:', error);
+        setInterviewPhase('introduction');
+      }
+    };
+    
+    resetAndInitialize();
   }, []);
 
   // Add a reset handler
   const handleResetInterview = async () => {
     await axios.post('http://localhost:3001/api/reset', {}, { withCredentials: true });
     window.location.reload();
+  };
+
+  // Add a handler for DSA problem data
+  const handleDSAProblemReceived = (dsaProblem) => {
+    console.log('📋 Received DSA problem:', dsaProblem.title);
+    
+    // Update problem description
+    setProblemDescription(`${dsaProblem.title}\n\n${dsaProblem.story}\n\n**Problem:** ${dsaProblem.problem}\n\n**Requirements:**\n${dsaProblem.requirements.map(req => `- ${req}`).join('\n')}`);
+    
+    // Update test cases
+    const formattedTestCases = dsaProblem.testCases.map((tc, index) => ({
+      input: tc.input,
+      expectedOutput: tc.output
+    }));
+    setTestCases(formattedTestCases);
+    
+    console.log('📋 Updated problem description and test cases');
+    
+    // Set language-specific function templates based on the problem
+    const templates = {
+      python: `def solution(input_data):
+    """
+    TODO: Implement your solution here
+    
+    Args:
+        input_data: List of student objects with name and scores
+        
+    Returns:
+        List of student objects with name and calculated grade
+    """
+    # Your code here
+    # Example: input_data = [{"name": "Alice", "scores": [85, 92, 78, 96]}]
+    # Expected: [{"name": "Alice", "grade": 91}]
+    pass`,
+      javascript: `function solution(input_data) {
+    /**
+     * TODO: Implement your solution here
+     * 
+     * @param {Array} input_data - Array of student objects with name and scores
+     * @returns {Array} Array of student objects with name and calculated grade
+     */
+    // Your code here
+}`,
+      java: `class Solution {
+    /**
+     * TODO: Implement your solution here
+     * 
+     * @param input_data List of student objects with name and scores
+     * @return List of student objects with name and calculated grade
+     */
+    public Object solution(Object input_data) {
+        // Your code here
+        return null;
+    }
+}`,
+      cpp: `class Solution {
+public:
+    /**
+     * TODO: Implement your solution here
+     * 
+     * @param input_data List of student objects with name and scores
+     * @return List of student objects with name and calculated grade
+     */
+    auto solution(auto input_data) {
+        // Your code here
+        return {};
+    }
+};`
+    };
+    setCode(templates[language]);
   };
 
   return (
@@ -433,6 +538,7 @@ public:
                       <ChatBox
                         isDarkMode={isDarkMode}
                         onSendMessage={handleChatMessage}
+                        onDSAProblemReceived={handleDSAProblemReceived}
                       />
                     </div>
                   </Split>

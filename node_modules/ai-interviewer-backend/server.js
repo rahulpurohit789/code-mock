@@ -78,9 +78,9 @@ const dsaStoryProblems = [
       "Drop lowest score only if student has 3 or more quizzes"
     ],
     testCases: [
-      { input: '[{name: "Alice", scores: [85, 92, 78, 96]}]', output: '[{name: "Alice", grade: 91}]', explanation: "Drop 78, average of 85,92,96 = 91" },
-      { input: '[{name: "Bob", scores: [80, 90]}]', output: '[{name: "Bob", grade: 85}]', explanation: "Only 2 scores, can't drop any, average = 85" },
-      { input: '[{name: "Charlie", scores: [100, 95, 85, 90, 92]}]', output: '[{name: "Charlie", grade: 94.25}]', explanation: "Drop 85, average of remaining = 94.25" }
+      { input: '[{"name": "Alice", "scores": [85, 92, 78, 96]}]', output: '[{"name": "Alice", "grade": 91}]', explanation: "Drop 78, average of 85,92,96 = 91" },
+      { input: '[{"name": "Bob", "scores": [80, 90]}]', output: '[{"name": "Bob", "grade": 85}]', explanation: "Only 2 scores, can't drop any, average = 85" },
+      { input: '[{"name": "Charlie", "scores": [100, 95, 85, 90, 92]}]', output: '[{"name": "Charlie", "grade": 94.25}]', explanation: "Drop 85, average of remaining = 94.25" }
     ]
   }
 ];
@@ -116,6 +116,155 @@ const coreTopicQuestions = {
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', interviewer: 'Code Mock is ready!' });
+});
+
+// Code execution endpoint
+app.post('/api/code/execute', async (req, res) => {
+  try {
+    const { code, language, testCases, isSubmission } = req.body;
+    
+    // Validate input
+    if (!code || !language) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Code and language are required' 
+      });
+    }
+
+    // Language versions for code execution
+    const languageVersions = {
+      python: "3.10",
+      javascript: "18.15.0",
+      java: "15.0.2",
+      cpp: "10.2.0"
+    };
+
+    // Get language version
+    const version = languageVersions[language.toLowerCase()] || "latest";
+    
+    // Process each test case
+    const testResults = [];
+    if (testCases && testCases.length > 0) {
+      for (const testCase of testCases) {
+        try {
+          // Modify code for current test case
+          let modifiedCode = code;
+          
+          // For Python, wrap the input
+          if (language.toLowerCase() === 'python') {
+            modifiedCode = `${code}\n\n# Test case execution\ninput_data = ${testCase.input}\nresult = solution(input_data)\nprint(result)`;
+          }
+          // For JavaScript, wrap the input
+          else if (language.toLowerCase() === 'javascript') {
+            modifiedCode = `${code}\n\n// Test case execution\nconst input_data = ${testCase.input};\nconst result = solution(input_data);\nconsole.log(JSON.stringify(result));`;
+          }
+          // For Java, wrap the input
+          else if (language.toLowerCase() === 'java') {
+            modifiedCode = `${code}\n\n// Test case execution\npublic class Main {\n    public static void main(String[] args) {\n        Object input_data = ${testCase.input};\n        Object result = solution(input_data);\n        System.out.println(result);\n    }\n}`;
+          }
+          // For C++, wrap the input
+          else if (language.toLowerCase() === 'cpp') {
+            modifiedCode = `${code}\n\n// Test case execution\nint main() {\n    auto input_data = ${testCase.input};\n    auto result = solution(input_data);\n    std::cout << result << std::endl;\n    return 0;\n}`;
+          }
+
+          // Call Piston API for code execution
+          const response = await fetch('https://emkc.org/api/v2/piston/execute', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              language: language.toLowerCase(),
+              version: version,
+              files: [{
+                name: `main.${language.toLowerCase() === 'python' ? 'py' : language.toLowerCase() === 'javascript' ? 'js' : language.toLowerCase() === 'java' ? 'java' : 'cpp'}`,
+                content: modifiedCode
+              }]
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error(`Piston API error: ${response.statusText}`);
+          }
+
+          const data = await response.json();
+          
+          // Extract output
+          const actualOutput = data.run?.stdout?.trim() || '';
+          const errorOutput = data.run?.stderr?.trim() || '';
+          
+          if (errorOutput) {
+            testResults.push({
+              input: testCase.input,
+              expectedOutput: testCase.expectedOutput,
+              actualOutput: errorOutput,
+              passed: false,
+              error: errorOutput
+            });
+            continue;
+          }
+          
+          // Normalize outputs
+          const normalizeOutput = (str) => {
+            return str
+              .replace(/[\s\n]+/g, '') // Remove all whitespace and newlines
+              .replace(/\[/g, '[')     // Ensure consistent bracket formatting
+              .replace(/\]/g, ']')
+              .replace(/,/g, ', ');    // Add space after commas
+          };
+          
+          const normalizedActual = normalizeOutput(actualOutput);
+          const normalizedExpected = normalizeOutput(testCase.expectedOutput);
+          
+          testResults.push({
+            input: testCase.input,
+            expectedOutput: testCase.expectedOutput,
+            actualOutput: actualOutput,
+            passed: normalizedActual === normalizedExpected,
+            error: null
+          });
+        } catch (error) {
+          console.error('Error executing test case:', error);
+          testResults.push({
+            input: testCase.input,
+            expectedOutput: testCase.expectedOutput,
+            actualOutput: 'Execution failed',
+            passed: false,
+            error: error.message
+          });
+        }
+      }
+    }
+
+    // Format the final response
+    const result = {
+      success: true,
+      data: {
+        language: language,
+        version: version,
+        testResults: testResults
+      }
+    };
+
+    // Add submission status for submission requests
+    if (isSubmission && testResults.length > 0) {
+      const allPassed = testResults.every(test => test.passed);
+      result.data.submissionStatus = allPassed ? 'Accepted' : 'Wrong Answer';
+      result.data.runtime = Math.floor(Math.random() * 100) + 1; // Mock runtime
+      result.data.memory = Math.floor(Math.random() * 50) + 10; // Mock memory usage
+    }
+
+    res.json(result);
+
+  } catch (error) {
+    console.error('Code execution error:', error);
+    
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to execute code',
+      details: error.message || 'Unknown error occurred'
+    });
+  }
 });
 
 // Chat endpoint
@@ -258,7 +407,7 @@ Be encouraging but thorough in your feedback.`;
       
       fullPrompt = `${baseSystemPrompt}
 
-CRITICAL INSTRUCTION: The candidate just answered your second core topic question. You MUST respond with EXACTLY this text and nothing else:
+The candidate just answered your second core topic question. You must now transition to the DSA PROBLEM phase and present a coding challenge. Follow this EXACT script:
 
 "Excellent! You've shown good understanding of core concepts. Now let's move on to a coding challenge. I like to make these more interesting with real-world scenarios.
 
@@ -277,10 +426,13 @@ ${selectedProblem.testCases.map((tc, i) => `${i + 1}. Input: ${tc.input} → Out
 
 Please walk me through your approach first, then provide your solution. I'm interested in your thought process as much as the final code!"
 
-DO NOT add any additional text, questions, or commentary. Respond with ONLY the text above.`;
+DO NOT ask any other questions or make additional comments. Stick to this script exactly.`;
 
       // Store selected problem for later reference
       req.session.selectedDSAProblem = selectedProblem;
+      
+      // Set a flag to include problem data in response
+      req.session.includeDSAProblem = true;
       
     } else if (state.phase === 'dsa_problem' && !state.dsaGenerated) {
       // Mark DSA as generated and wait for solution
@@ -389,7 +541,8 @@ Be warm, professional, and encouraging in your closing.`;
     console.log('Received response from Ollama');
     console.log('Updated phase:', state.phase);
 
-    res.json({ 
+    // Create response object
+    const responseData = { 
       response: cleanedResponse,
       phase: state.phase,
       progress: {
@@ -398,7 +551,16 @@ Be warm, professional, and encouraging in your closing.`;
         dsaGenerated: state.dsaGenerated,
         usedTopics: state.usedTopics
       }
-    });
+    };
+
+    // Include DSA problem data if flag is set
+    if (req.session.includeDSAProblem && req.session.selectedDSAProblem) {
+      responseData.dsaProblem = req.session.selectedDSAProblem;
+      console.log('📋 Sending DSA problem data:', req.session.selectedDSAProblem.title);
+      req.session.includeDSAProblem = false; // Reset flag
+    }
+
+    res.json(responseData);
   } catch (error) {
     console.error('Error in /api/chat:', error);
     res.status(500).json({ 

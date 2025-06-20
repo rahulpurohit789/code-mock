@@ -6,9 +6,30 @@ const SubmissionPanel = ({ result, isDarkMode, onClose }) => {
 
   if (!result) return null;
 
-  const isAccepted = result.submissionStatus === 'Accepted';
-  const failedTestCase = !isAccepted && result.testResults ? 
-    result.testResults.findIndex(test => !test.passed) + 1 : 
+  // Handle API error or code execution failure
+  if (!result.success || result.error) {
+    return (
+      <div className="h-full flex flex-col p-4" style={{ backgroundColor: colors.background.secondary }}>
+        <div className="p-3 rounded" style={{ 
+          backgroundColor: colors.status.error.background,
+          color: colors.status.error.text 
+        }}>
+          <div className="font-semibold">Error:</div>
+          <div className="whitespace-pre-wrap">{result.error || 'An unknown error occurred.'}</div>
+          {result.details && (
+            <div className="mt-2 text-sm opacity-75 whitespace-pre-wrap">
+              {result.details}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const { data } = result;
+  const isAccepted = data.submissionStatus === 'Accepted';
+  const failedTestCase = !isAccepted && data.testResults ? 
+    data.testResults.findIndex(test => !test.passed) + 1 : 
     null;
 
   return (
@@ -40,22 +61,6 @@ const SubmissionPanel = ({ result, isDarkMode, onClose }) => {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {result.error ? (
-          <div className="p-4">
-            <div className="p-3 rounded" style={{ 
-              backgroundColor: colors.status.error.background,
-              color: colors.status.error.text 
-            }}>
-              <div className="font-semibold">Error:</div>
-              <div className="whitespace-pre-wrap">{result.error}</div>
-              {result.details && (
-                <div className="mt-2 text-sm opacity-75 whitespace-pre-wrap">
-                  {result.details}
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
           <div>
             {/* Status Summary */}
             <div className="p-4 border-b" style={{ borderColor: colors.border.primary }}>
@@ -77,7 +82,7 @@ const SubmissionPanel = ({ result, isDarkMode, onClose }) => {
             </div>
 
             {/* Test Case Details */}
-            {!isAccepted && failedTestCase !== null && (
+            {!isAccepted && failedTestCase !== null && data.testResults && data.testResults[failedTestCase - 1] && (
               <div className="p-4 space-y-4">
                 <div className="text-sm font-medium mb-4" style={{ color: colors.text.primary }}>
                   Failed Test Case #{failedTestCase}
@@ -90,7 +95,7 @@ const SubmissionPanel = ({ result, isDarkMode, onClose }) => {
                     backgroundColor: colors.background.primary,
                     color: colors.text.primary
                   }}>
-                    {result.testResults[failedTestCase - 1].input}
+                    {data.testResults[failedTestCase - 1].input}
                   </div>
                 </div>
 
@@ -102,7 +107,7 @@ const SubmissionPanel = ({ result, isDarkMode, onClose }) => {
                     backgroundColor: colors.background.primary,
                     color: colors.text.primary
                   }}>
-                    {result.testResults[failedTestCase - 1].actualOutput}
+                    {data.testResults[failedTestCase - 1].actualOutput}
                   </div>
                 </div>
 
@@ -114,13 +119,12 @@ const SubmissionPanel = ({ result, isDarkMode, onClose }) => {
                     backgroundColor: colors.background.primary,
                     color: colors.text.primary
                   }}>
-                    {result.testResults[failedTestCase - 1].expectedOutput}
+                    {data.testResults[failedTestCase - 1].expectedOutput}
                   </div>
                 </div>
               </div>
             )}
           </div>
-        )}
       </div>
     </div>
   );

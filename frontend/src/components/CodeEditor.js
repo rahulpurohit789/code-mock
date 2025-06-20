@@ -49,13 +49,7 @@ int main() {
 }`
 };
 
-function CodeEditor({ code, language, onCodeChange, isDarkMode, functionTemplate }) {
-  useEffect(() => {
-    if (functionTemplate && !code) {
-      onCodeChange(functionTemplate);
-    }
-  }, [functionTemplate, code, onCodeChange]);
-
+function CodeEditor({ code, language, onCodeChange, isDarkMode }) {
   const handleEditorChange = (value) => {
     onCodeChange(value);
   };
@@ -107,7 +101,7 @@ function CodeEditor({ code, language, onCodeChange, isDarkMode, functionTemplate
           defaultLanguage="python"
           language={getLanguageConfig()}
           theme={isDarkMode ? 'vs-dark' : 'light'}
-          value={code || functionTemplate}
+          value={code}
           onChange={handleEditorChange}
           options={{
             minimap: { enabled: false },
