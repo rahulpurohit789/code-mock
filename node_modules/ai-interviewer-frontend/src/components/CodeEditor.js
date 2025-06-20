@@ -8,50 +8,13 @@ const SUPPORTED_LANGUAGES = [
   { id: 'cpp', name: 'C++' }
 ];
 
-const DEFAULT_CODE = {
-  python: `# Python Example
-def greet(name):
-    return f"Hello, {name}!"
-
-# Test the function
-print(greet("World"))`,
-
-  javascript: `// JavaScript Example
-function greet(name) {
-    return \`Hello, \${name}!\`;
-}
-
-// Test the function
-console.log(greet("World"));`,
-
-  java: `// Java Example
-public class Main {
-    public static void main(String[] args) {
-        System.out.println(greet("World"));
-    }
-    
-    public static String greet(String name) {
-        return "Hello, " + name + "!";
-    }
-}`,
-
-  cpp: `// C++ Example
-#include <iostream>
-#include <string>
-
-std::string greet(const std::string& name) {
-    return "Hello, " + name + "!";
-}
-
-int main() {
-    std::cout << greet("World") << std::endl;
-    return 0;
-}`
-};
-
-function CodeEditor({ code, language, onCodeChange, isDarkMode }) {
+function CodeEditor({ code, language, onCodeChange, onLanguageChange, isDarkMode }) {
   const handleEditorChange = (value) => {
     onCodeChange(value);
+  };
+
+  const handleLanguageChange = (newLanguage) => {
+    onLanguageChange(newLanguage);
   };
 
   const getLanguageConfig = () => {
@@ -78,9 +41,7 @@ function CodeEditor({ code, language, onCodeChange, isDarkMode }) {
           </h2>
           <select
             value={language}
-            onChange={(e) => {
-              onCodeChange(DEFAULT_CODE[e.target.value]);
-            }}
+            onChange={(e) => handleLanguageChange(e.target.value)}
             className={`px-3 py-1 rounded-md shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
               isDarkMode
                 ? 'bg-gray-700 border-gray-600 text-white'

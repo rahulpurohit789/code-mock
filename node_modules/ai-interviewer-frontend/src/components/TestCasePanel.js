@@ -3,6 +3,7 @@ import AddTestCaseModal from './AddTestCaseModal';
 
 const TestCasePanel = ({ 
   testCases, 
+  hiddenTestCases = [],
   activeTestCase, 
   onTestCaseChange, 
   isDarkMode, 
@@ -12,7 +13,12 @@ const TestCasePanel = ({
 }) => {
   const [showAddModal, setShowAddModal] = useState(false);
 
-  if (!testCases || testCases.length === 0) {
+  const allTestCases = [
+    ...testCases.map((tc, index) => ({ ...tc, index, type: 'visible' })),
+    ...hiddenTestCases.map((tc, index) => ({ ...tc, index: index + testCases.length, type: 'hidden' }))
+  ];
+
+  if (!allTestCases || allTestCases.length === 0) {
     return (
       <div 
         className="h-full flex flex-col items-center justify-center"
@@ -37,27 +43,55 @@ const TestCasePanel = ({
 
   return (
     <div className="h-full flex flex-col" style={{ backgroundColor: themeColors.background.secondary }}>
+      {/* Header with test case counts */}
+      <div className="p-3 border-b" style={{ borderColor: themeColors.border.primary }}>
+        <div className="flex justify-between items-center text-sm" style={{ color: themeColors.text.secondary }}>
+          <span>Visible: {testCases.length}</span>
+          <span>Hidden: {hiddenTestCases.length}</span>
+        </div>
+      </div>
+
       <div className="flex-1 overflow-y-auto">
-        {testCases.map((testCase, index) => (
+        {allTestCases.map((testCase, index) => (
           <button
             key={index}
-            onClick={() => onTestCaseChange(index)}
+            onClick={() => onTestCaseChange(testCase.index)}
             className="w-full text-left p-4 border-b"
             style={{
-              backgroundColor: activeTestCase === index ? themeColors.background.primary : 'transparent',
+              backgroundColor: activeTestCase === testCase.index ? themeColors.background.primary : 'transparent',
               borderColor: themeColors.border.primary,
               color: themeColors.text.primary
             }}
           >
             <div className="flex justify-between items-center">
-              <span className="font-medium">Test Case {index + 1}</span>
+              <div className="flex items-center space-x-2">
+                <span className="font-medium">
+                  {testCase.type === 'hidden' ? '🔒' : '👁️'} Test Case {testCase.index + 1}
+                </span>
+                {testCase.type === 'hidden' && (
+                  <span className="text-xs px-2 py-1 rounded" style={{ 
+                    backgroundColor: themeColors.text.accent,
+                    color: '#ffffff'
+                  }}>
+                    Hidden
+                  </span>
+                )}
+              </div>
             </div>
             <div 
-              className="mt-2 font-mono text-sm"
+              className="mt-2 font-mono text-sm space-y-1"
               style={{ color: themeColors.text.secondary }}
             >
               <div>Input: {testCase.input}</div>
               <div>Expected: {testCase.expectedOutput}</div>
+              {testCase.explanation && (
+                <div className="mt-2 p-2 rounded text-xs" style={{ 
+                  backgroundColor: themeColors.background.primary,
+                  color: themeColors.text.primary
+                }}>
+                  💡 {testCase.explanation}
+                </div>
+              )}
             </div>
           </button>
         ))}

@@ -37,12 +37,12 @@ const TestResultPanel = ({ output, isDarkMode, themeColors }) => {
   return (
     <div className="h-full flex flex-col" style={{ backgroundColor: themeColors.background.secondary }}>
       {/* Test Case Navigation */}
-      <div className="flex border-b" style={{ borderColor: themeColors.border.primary }}>
+      <div className="flex border-b overflow-x-auto" style={{ borderColor: themeColors.border.primary }}>
         {output.testResults && output.testResults.map((testResult, index) => (
           <button
             key={index}
             onClick={() => setSelectedCase(index)}
-            className="px-4 py-2 text-sm font-medium transition-colors duration-150 relative"
+            className="px-4 py-2 text-sm font-medium transition-colors duration-150 relative whitespace-nowrap"
             style={{
               color: selectedCase === index ? themeColors.text.primary : themeColors.text.secondary,
               borderBottom: selectedCase === index ? `2px solid ${themeColors.text.accent}` : 'none'
@@ -66,6 +66,22 @@ const TestResultPanel = ({ output, isDarkMode, themeColors }) => {
       {currentTestResult && (
         <div className="flex-1 p-4 overflow-auto">
           <div className="space-y-4">
+            {/* Status Summary */}
+            <div className="flex items-center space-x-2 p-3 rounded-lg" style={{ 
+              backgroundColor: currentTestResult.passed ? 'rgba(74, 222, 128, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+              border: `1px solid ${currentTestResult.passed ? '#4ade80' : '#ef4444'}`
+            }}>
+              <span className="text-lg">
+                {currentTestResult.passed ? '✓' : '✗'}
+              </span>
+              <span className="font-medium" style={{ color: currentTestResult.passed ? '#4ade80' : '#ef4444' }}>
+                {currentTestResult.passed ? 'Passed' : 'Failed'}
+              </span>
+              {currentTestResult.error && (
+                <span className="text-xs opacity-75">(Runtime Error)</span>
+              )}
+            </div>
+
             <div>
               <h3 className="text-sm font-medium mb-2" style={{ color: themeColors.text.primary }}>Input:</h3>
               <pre 
@@ -90,7 +106,7 @@ const TestResultPanel = ({ output, isDarkMode, themeColors }) => {
                   border: `1px solid ${themeColors.border.primary}`
                 }}
               >
-                {currentTestResult.actualOutput}
+                {currentTestResult.actualOutput || 'No output'}
               </pre>
             </div>
 
@@ -107,6 +123,23 @@ const TestResultPanel = ({ output, isDarkMode, themeColors }) => {
                 {currentTestResult.expectedOutput}
               </pre>
             </div>
+
+            {/* Error details if any */}
+            {currentTestResult.error && (
+              <div>
+                <h3 className="text-sm font-medium mb-2" style={{ color: '#ef4444' }}>Error:</h3>
+                <pre 
+                  className="p-3 rounded-lg font-mono text-sm whitespace-pre-wrap"
+                  style={{ 
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    color: '#ef4444',
+                    border: `1px solid #ef4444`
+                  }}
+                >
+                  {currentTestResult.error}
+                </pre>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -47,6 +47,12 @@ function App() {
   const [descriptionHeight, setDescriptionHeight] = useState(50); // percentage
   const resizeRef = useRef(null);
   const [interviewPhase, setInterviewPhase] = useState('introduction');
+  const [messages, setMessages] = useState([
+    {
+      type: 'bot',
+      content: "Hello! I'm Code Mock, your AI interviewer. When you're ready to begin, please introduce yourself."
+    }
+  ]);
 
   // Refs for split instances
   const horizontalSplitRef = useRef(null);
@@ -101,100 +107,42 @@ function App() {
     setLanguage(newLanguage);
   };
 
-  const handleChatMessage = async (message) => {
-    // Mock problem setup
-    setProblemDescription(`Given an array of integers nums and an integer target, return indices of the two numbers in nums such that they add up to target.
-You may assume that each input would have exactly one solution, and you may not use the same element twice.
-You can return the answer in any order.
+  const handleSendMessage = async (message, payload = null) => {
+    // Add user message to state
+    if (!payload) {
+      setMessages(prev => [...prev, { type: 'user', content: message }]);
+    }
+    setIsLoading(true);
 
-Example:
-Input: nums = [2,7,11,15], target = 9
-Output: [0,1]
-Explanation: Because nums[0] + nums[1] == 9, we return [0, 1].`);
+    try {
+      const postData = payload ? payload : { message };
+      
+      const response = await axios.post('http://localhost:3001/api/chat', postData, {
+        withCredentials: true
+      });
 
-    setTestCases([
-      { 
-        input_params: {
-          n: '3',
-          m: '2',
-          k: '1'
-        },
-        input: '[2,7,11,15], 9',
-        expectedOutput: '[0,1]'
-      },
-      {
-        input_params: {
-          n: '4',
-          m: '3',
-          k: '2'
-        },
-        input: '[3,2,4], 6',
-        expectedOutput: '[1,2]'
-      },
-      {
-        input_params: {
-          n: '5',
-          m: '4',
-          k: '3'
-        },
-        input: '[3,3], 6',
-        expectedOutput: '[0,1]'
+      setMessages(prev => [...prev, {
+        type: 'bot',
+        content: response.data.response
+      }]);
+
+      if (response.data.dsaProblem) {
+        handleDSAProblemReceived(response.data.dsaProblem);
       }
-    ]);
+      
+      if(response.data.phase) {
+        setInterviewPhase(response.data.phase);
+      }
 
-    // Set language-specific function templates
-    const templates = {
-      python: `def solution(input_data):
-    """
-    TODO: Implement your solution here
-    
-    Args:
-        input_data: List of student objects with name and scores
-        
-    Returns:
-        List of student objects with name and calculated grade
-    """
-    # Your code here
-    # Example: input_data = [{"name": "Alice", "scores": [85, 92, 78, 96]}]
-    # Expected: [{"name": "Alice", "grade": 91}]
-    pass`,
-      javascript: `function solution(input_data) {
-    /**
-     * TODO: Implement your solution here
-     * 
-     * @param {Array} input_data - Array of student objects with name and scores
-     * @returns {Array} Array of student objects with name and calculated grade
-     */
-    // Your code here
-}`,
-      java: `class Solution {
-    /**
-     * TODO: Implement your solution here
-     * 
-     * @param input_data List of student objects with name and scores
-     * @return List of student objects with name and calculated grade
-     */
-    public Object solution(Object input_data) {
-        // Your code here
-        return null;
+    } catch (error) {
+      console.error('Error during chat:', error);
+      setMessages(prev => [...prev, {
+        type: 'bot',
+        content: 'Sorry, I encountered an error. Please check the console or try again.'
+      }]);
+    } finally {
+      setIsLoading(false);
     }
-}`,
-      cpp: `class Solution {
-public:
-    /**
-     * TODO: Implement your solution here
-     * 
-     * @param input_data List of student objects with name and scores
-     * @return List of student objects with name and calculated grade
-     */
-    auto solution(auto input_data) {
-        // Your code here
-        return {};
-    }
-};`
-    };
-
-    setCode(templates[language]);
   };
 
   const executeCode = async (isSubmission = false) => {
@@ -204,7 +152,13 @@ public:
 
       // Validate code
       if (!code || !code.trim()) {
-        setOutput({ error: 'Please enter some code to execute' });
+        const errorOutput = { error: 'Please enter some code to execute' };
+        if (isSubmission) {
+          setSubmissionResult({ success: false, error: errorOutput.error });
+          setShowSubmission(true);
+        } else {
+          setOutput(errorOutput);
+        }
         return;
       }
 
@@ -213,6 +167,9 @@ public:
         ? [...testCases, ...hiddenTestCases]  // Include hidden test cases for submission
         : testCases;  // Only visible test cases for regular test runs
 
+      console.log(`🚀 Executing code (${isSubmission ? 'submission' : 'test run'})`);
+      console.log(`📊 Test cases to run: ${testCasesToUse.length} (${testCases.length} visible + ${hiddenTestCases.length} hidden)`);
+
       const response = await axios.post('http://localhost:3001/api/code/execute', {
         code: code.trim(),
         language,
@@ -220,10 +177,30 @@ public:
         isSubmission
       });
 
+      console.log('✅ Code execution response received:', response.data.success);
+
       if (response.data.success) {
         if (isSubmission) {
+          // Set submission result first
           setSubmissionResult(response.data);
           setShowSubmission(true);
+          
+          // Then send to AI for analysis
+          console.log("🤖 Sending submission to AI for analysis...");
+          const analysisPayload = {
+            type: 'dsa_solution',
+            language: language,
+            code: code.trim(),
+            results: response.data.data
+          };
+          
+          try {
+            await handleSendMessage("Here is my solution.", analysisPayload);
+            console.log("✅ AI analysis request sent successfully");
+          } catch (aiError) {
+            console.error("❌ Error sending to AI for analysis:", aiError);
+            // Don't fail the submission if AI analysis fails
+          }
         } else {
           // For regular test runs, only show results for visible test cases
           response.data.data.testResults = response.data.data.testResults.slice(0, testCases.length);
@@ -236,6 +213,8 @@ public:
           error: response.data.error,
           details: response.data.details
         };
+        console.log("❌ Code execution failed:", errorOutput);
+        
         if (isSubmission) {
           setSubmissionResult(errorOutput);
           setShowSubmission(true);
@@ -244,12 +223,13 @@ public:
         }
       }
     } catch (error) {
-      console.error('Error executing code:', error);
+      console.error('❌ Error executing code:', error);
       const errorOutput = {
         success: false,
         error: 'Failed to execute code',
         details: error.response?.data?.message || error.message
       };
+      
       if (isSubmission) {
         setSubmissionResult(errorOutput);
         setShowSubmission(true);
@@ -375,78 +355,71 @@ public:
 
   // Add a reset handler
   const handleResetInterview = async () => {
-    await axios.post('http://localhost:3001/api/reset', {}, { withCredentials: true });
-    window.location.reload();
+    try {
+      await axios.post('http://localhost:3001/api/reset', {}, { withCredentials: true });
+      // Reset all relevant state
+      setMessages([
+        {
+          type: 'bot',
+          content: 'Interview reset. Hello again! Please introduce yourself to begin.'
+        }
+      ]);
+      setProblemDescription('');
+      setTestCases([]);
+      setHiddenTestCases([]);
+      setCode('');
+      setOutput(null);
+      setSubmissionResult(null);
+      setShowSubmission(false);
+      setInterviewPhase('introduction');
+      console.log('Frontend state has been reset.');
+
+    } catch (error) {
+      console.error('Error resetting interview:', error);
+    }
   };
 
   // Add a handler for DSA problem data
   const handleDSAProblemReceived = (dsaProblem) => {
-    console.log('📋 Received DSA problem:', dsaProblem.title);
+    console.log('📋 Received AI-generated DSA problem:', dsaProblem.title);
     
-    // Update problem description
-    setProblemDescription(`${dsaProblem.title}\n\n${dsaProblem.story}\n\n**Problem:** ${dsaProblem.problem}\n\n**Requirements:**\n${dsaProblem.requirements.map(req => `- ${req}`).join('\n')}`);
+    // Combine story, problem, and requirements for the description panel
+    const description = `### ${dsaProblem.title}\n\n**Story:**\n${dsaProblem.story}\n\n**Problem Statement:**\n${dsaProblem.problem}\n\n**Requirements:**\n${dsaProblem.requirements.map(req => `- ${req}`).join('\n')}`;
+    setProblemDescription(description);
     
-    // Update test cases
-    const formattedTestCases = dsaProblem.testCases.map((tc, index) => ({
+    // Format and set visible test cases
+    const formattedVisibleTestCases = dsaProblem.testCases.map(tc => ({
       input: tc.input,
-      expectedOutput: tc.output
+      expectedOutput: tc.output,
+      explanation: tc.explanation,
     }));
-    setTestCases(formattedTestCases);
+    setTestCases(formattedVisibleTestCases);
     
-    console.log('📋 Updated problem description and test cases');
+    // Format and set hidden test cases
+    const formattedHiddenTestCases = dsaProblem.hiddenTestCases.map(tc => ({
+      input: tc.input,
+      expectedOutput: tc.output,
+    }));
+    setHiddenTestCases(formattedHiddenTestCases);
     
-    // Set language-specific function templates based on the problem
-    const templates = {
-      python: `def solution(input_data):
-    """
-    TODO: Implement your solution here
+    console.log('🗃️ Visible Test Cases:', formattedVisibleTestCases);
+    console.log('🤫 Hidden Test Cases:', formattedHiddenTestCases);
     
-    Args:
-        input_data: List of student objects with name and scores
-        
-    Returns:
-        List of student objects with name and calculated grade
-    """
-    # Your code here
-    # Example: input_data = [{"name": "Alice", "scores": [85, 92, 78, 96]}]
-    # Expected: [{"name": "Alice", "grade": 91}]
-    pass`,
-      javascript: `function solution(input_data) {
-    /**
-     * TODO: Implement your solution here
-     * 
-     * @param {Array} input_data - Array of student objects with name and scores
-     * @returns {Array} Array of student objects with name and calculated grade
-     */
-    // Your code here
-}`,
-      java: `class Solution {
-    /**
-     * TODO: Implement your solution here
-     * 
-     * @param input_data List of student objects with name and scores
-     * @return List of student objects with name and calculated grade
-     */
-    public Object solution(Object input_data) {
-        // Your code here
-        return null;
+    // Set editor content to the skeleton code for the current language
+    if (dsaProblem.skeletonCode && dsaProblem.skeletonCode[language]) {
+      setCode(dsaProblem.skeletonCode[language]);
+      console.log(`✏️ Set skeleton code for ${language}.`);
+    } else {
+      // Fallback if skeleton code for the language is missing
+      const fallbackTemplates = {
+          python: `def solution(input_data):\n    # Your code here\n    pass`,
+          javascript: `function solution(input_data) {\n    // Your code here\n}`,
+          java: `class Solution {\n    public Object solution(Object input_data) {\n        // Your code here\n        return null;\n    }\n}`,
+          cpp: `class Solution {\npublic:\n    auto solution(auto input_data) {\n        // Your code here\n        return {};\n    }\n};`
+      };
+      setCode(fallbackTemplates[language]);
+      console.warn(`⚠️ Skeleton code for ${language} not found in AI response. Using fallback.`);
     }
-}`,
-      cpp: `class Solution {
-public:
-    /**
-     * TODO: Implement your solution here
-     * 
-     * @param input_data List of student objects with name and scores
-     * @return List of student objects with name and calculated grade
-     */
-    auto solution(auto input_data) {
-        // Your code here
-        return {};
-    }
-};`
-    };
-    setCode(templates[language]);
   };
 
   return (
@@ -534,11 +507,12 @@ public:
                     </div>
 
                     {/* Chat Interface */}
-                    <div className="overflow-hidden">
+                    <div className="flex-1 overflow-auto">
                       <ChatBox
                         isDarkMode={isDarkMode}
-                        onSendMessage={handleChatMessage}
-                        onDSAProblemReceived={handleDSAProblemReceived}
+                        messages={messages}
+                        isLoading={isLoading}
+                        onSendMessage={handleSendMessage}
                       />
                     </div>
                   </Split>
@@ -616,6 +590,7 @@ public:
                       code={code}
                       language={language}
                       onCodeChange={handleCodeChange}
+                      onLanguageChange={handleLanguageChange}
                       isDarkMode={isDarkMode}
                       themeColors={themeColors}
                     />
@@ -623,34 +598,13 @@ public:
                 </div>
 
                 {/* Test Cases and Results Section */}
-                <div className="w-full overflow-hidden">
-                  <div className="flex border-b" style={{ borderColor: themeColors.border.primary }}>
-                    <TabButton
-                      isActive={activeTab === 'testcase'}
-                      onClick={() => setActiveTab('testcase')}
-                      style={{
-                        color: activeTab === 'testcase' ? themeColors.text.primary : themeColors.text.secondary,
-                        borderColor: activeTab === 'testcase' ? themeColors.text.accent : 'transparent'
-                      }}
-                    >
-                      Test Cases
-                    </TabButton>
-                    <TabButton
-                      isActive={activeTab === 'result'}
-                      onClick={() => setActiveTab('result')}
-                      style={{
-                        color: activeTab === 'result' ? themeColors.text.primary : themeColors.text.secondary,
-                        borderColor: activeTab === 'result' ? themeColors.text.accent : 'transparent'
-                      }}
-                    >
-                      Results
-                    </TabButton>
-                  </div>
-
-                  <div className="h-[calc(100%-40px)] overflow-hidden">
-                    {activeTab === 'testcase' ? (
+                <div className="w-full h-full overflow-hidden">
+                  <div className="flex h-full">
+                    {/* Test Cases Panel */}
+                    <div className="w-1/2 border-r" style={{ borderColor: themeColors.border.primary }}>
                       <TestCasePanel
                         testCases={testCases}
+                        hiddenTestCases={hiddenTestCases}
                         activeTestCase={activeTestCase}
                         onTestCaseChange={setActiveTestCase}
                         isDarkMode={isDarkMode}
@@ -658,13 +612,16 @@ public:
                         onTestInput={handleTestInput}
                         themeColors={themeColors}
                       />
-                    ) : (
+                    </div>
+
+                    {/* Test Results Panel */}
+                    <div className="w-1/2">
                       <TestResultPanel
                         output={output}
                         isDarkMode={isDarkMode}
                         themeColors={themeColors}
                       />
-                    )}
+                    </div>
                   </div>
                 </div>
               </Split>

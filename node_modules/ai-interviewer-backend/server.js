@@ -36,55 +36,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Sample DSA story problems pool
-const dsaStoryProblems = [
-  {
-    title: "Library Book Organization",
-    story: "You're helping the town librarian organize returned books. Books come back in random order, but need to be placed on shelves in alphabetical order by title. However, you can only move books from the return cart to a temporary sorting area, and from there to the final shelf position.",
-    problem: "Given an array of book titles, find the minimum number of moves needed to sort them alphabetically.",
-    requirements: [
-      "Input: Array of strings (book titles)",
-      "Output: Minimum number of swaps/moves to sort alphabetically",
-      "Consider case-insensitive sorting"
-    ],
-    testCases: [
-      { input: '["Python", "Java", "C++", "JavaScript"]', output: '2', explanation: "Need to swap Python with C++, and Python with Java" },
-      { input: '["Alice", "Bob", "Charlie"]', output: '0', explanation: "Already sorted alphabetically" },
-      { input: '["Zebra", "Apple", "Banana"]', output: '2', explanation: "Multiple swaps needed to get Apple, Banana, Zebra" }
-    ]
-  },
-  {
-    title: "Pizza Delivery Route",
-    story: "You're a pizza delivery driver with multiple orders to deliver. Each house is located on a straight street with house numbers. You want to minimize the total distance traveled while delivering all pizzas, starting and ending at the pizza shop (position 0).",
-    problem: "Given an array of house numbers, find the minimum total distance to visit all houses and return to the shop.",
-    requirements: [
-      "Input: Array of integers (house positions)",
-      "Output: Minimum total distance traveled",
-      "Start and end at position 0 (pizza shop)"
-    ],
-    testCases: [
-      { input: '[1, 3, 5]', output: '10', explanation: "Go 0→1→3→5→0 = 1+2+2+5 = 10 or 0→5→3→1→0 = 5+2+2+1 = 10" },
-      { input: '[2, 4]', output: '8', explanation: "Go 0→2→4→0 = 2+2+4 = 8" },
-      { input: '[10]', output: '20', explanation: "Go 0→10→0 = 10+10 = 20" }
-    ]
-  },
-  {
-    title: "Student Grade Calculator",
-    story: "As a teaching assistant, you need to calculate final grades for students. Each student has multiple quiz scores, but you can drop the lowest score before calculating the average. However, if a student has fewer than 3 quizzes, you cannot drop any scores.",
-    problem: "Given a list of students with their quiz scores, calculate each student's final grade after dropping the lowest score (if they have 3+ quizzes).",
-    requirements: [
-      "Input: Array of objects with student name and quiz scores",
-      "Output: Array of objects with student name and final grade",
-      "Drop lowest score only if student has 3 or more quizzes"
-    ],
-    testCases: [
-      { input: '[{"name": "Alice", "scores": [85, 92, 78, 96]}]', output: '[{"name": "Alice", "grade": 91}]', explanation: "Drop 78, average of 85,92,96 = 91" },
-      { input: '[{"name": "Bob", "scores": [80, 90]}]', output: '[{"name": "Bob", "grade": 85}]', explanation: "Only 2 scores, can't drop any, average = 85" },
-      { input: '[{"name": "Charlie", "scores": [100, 95, 85, 90, 92]}]', output: '[{"name": "Charlie", "grade": 94.25}]', explanation: "Drop 85, average of remaining = 94.25" }
-    ]
-  }
-];
-
 // Core topic questions pool
 const coreTopicQuestions = {
   os: [
@@ -204,17 +155,42 @@ app.post('/api/code/execute', async (req, res) => {
             continue;
           }
           
-          // Normalize outputs
+          // Normalize outputs for comparison
           const normalizeOutput = (str) => {
-            return str
-              .replace(/[\s\n]+/g, '') // Remove all whitespace and newlines
-              .replace(/\[/g, '[')     // Ensure consistent bracket formatting
+            if (!str) return '';
+            
+            let normalized = str.toString()
+              .replace(/[\s\n\r\t]+/g, '') // Remove all whitespace, newlines, tabs
+              .replace(/^["']|["']$/g, '') // Remove leading/trailing quotes
+              .trim();
+            
+            // Convert Python dictionary format to JSON format
+            normalized = normalized
+              .replace(/'/g, '"') // Convert single quotes to double quotes
+              .replace(/True/g, 'true') // Convert Python boolean to JSON
+              .replace(/False/g, 'false') // Convert Python boolean to JSON
+              .replace(/None/g, 'null'); // Convert Python None to JSON null
+            
+            // Handle array/object formatting
+            normalized = normalized
+              .replace(/\[/g, '[')
               .replace(/\]/g, ']')
-              .replace(/,/g, ', ');    // Add space after commas
+              .replace(/,/g, ', ')
+              .replace(/,\s*]/g, ']') // Remove trailing commas in arrays
+              .replace(/,\s*}/g, '}'); // Remove trailing commas in objects
+            
+            return normalized;
           };
           
           const normalizedActual = normalizeOutput(actualOutput);
           const normalizedExpected = normalizeOutput(testCase.expectedOutput);
+          
+          console.log('🔍 Output comparison:');
+          console.log('  Original actual:', actualOutput);
+          console.log('  Original expected:', testCase.expectedOutput);
+          console.log('  Normalized actual:', normalizedActual);
+          console.log('  Normalized expected:', normalizedExpected);
+          console.log('  Match:', normalizedActual === normalizedExpected);
           
           testResults.push({
             input: testCase.input,
@@ -270,9 +246,9 @@ app.post('/api/code/execute', async (req, res) => {
 // Chat endpoint
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, type, code, results, language } = req.body;
     
-    if (!message) {
+    if (!message && type !== 'dsa_solution') {
       return res.status(400).json({ error: 'Message is required' });
     }
 
@@ -295,7 +271,9 @@ app.post('/api/chat', async (req, res) => {
     const history = req.session.conversationHistory;
 
     // Add the latest user message to the history
-    history.push({ role: 'candidate', content: message });
+    if (type !== 'dsa_solution') {
+      history.push({ role: 'candidate', content: message });
+    }
 
     let fullPrompt = '';
     const baseSystemPrompt = `You are "Code Mock", a technical interviewer conducting a real interview. You must follow the interview flow and respond as the interviewer, not generate scripts or examples. You are having a conversation with a real candidate right now.
@@ -308,10 +286,83 @@ IMPORTANT: You are the interviewer. Respond directly to the candidate. Do NOT cr
     console.log('Core questions asked:', state.coreQuestionsAsked);
     console.log('Used topics:', state.usedTopics);
     console.log('DSA generated:', state.dsaGenerated);
-    console.log('User message:', message.substring(0, 100) + '...');
+    console.log('User message:', message?.substring(0, 100) + '...');
 
     // INTERVIEW FLOW LOGIC
-    if (state.phase === 'introduction' && state.introQuestionsAsked === 0) {
+    if (type === 'dsa_solution') {
+      const problem = req.session.selectedDSAProblem;
+      if (!problem) {
+        return res.status(400).json({ error: "Cannot find problem in session. Please restart the interview." });
+      }
+
+      const allTestsPassed = results.testResults.every(r => r.passed);
+      
+      // Increment solved count if all tests passed
+      if (allTestsPassed) {
+        state.dsaProblemsSolved = (state.dsaProblemsSolved || 0) + 1;
+      }
+
+      history.push({ 
+        role: 'system', 
+        content: `The candidate has submitted a solution. All tests passed: ${allTestsPassed}. Submission details: ${JSON.stringify(results)}`
+      });
+
+      fullPrompt = `${baseSystemPrompt}
+
+You are currently in the DSA problem phase. The candidate has just submitted the following code for the problem titled "${problem.title}".
+
+PROBLEM DESCRIPTION:
+- Story: ${problem.story}
+- Problem: ${problem.problem}
+- Requirements: ${problem.requirements.join(', ')}
+
+CANDIDATE'S SUBMITTED CODE (${language}):
+\`\`\`${language}
+${code}
+\`\`\`
+
+TEST RESULTS:
+- Submission Status: ${results.submissionStatus}
+- ${results.testResults.filter(r => !r.passed).length} out of ${results.testResults.length} test cases failed.
+
+YOUR TASK:
+Based on the code and the test results, analyze their solution and respond as an interviewer.
+
+1.  **If the code failed any tests (${results.submissionStatus} is 'Wrong Answer'):**
+    - DO NOT reveal the bug directly.
+    - Provide a constructive hint. Point them to the general area of the mistake (e.g., "Have you considered edge cases like an empty input?" or "Take another look at how you're handling duplicates.").
+    - Encourage them to rethink their approach and try again.
+
+2.  **If all tests passed BUT the solution is a brute-force or non-optimal approach:**
+    - Acknowledge that the solution is correct and passes the tests.
+    - Ask them about the time and space complexity of their solution.
+    - Gently challenge them to find a more optimal approach. Say something like, "This is a great start and it works correctly. Can you think of a way to optimize this? Perhaps we can solve it without nested loops?"
+
+3.  **If all tests passed AND the solution is optimal (and this is the FIRST problem, dsaProblemsSolved: ${state.dsaProblemsSolved}):**
+    - Congratulate them on an excellent solution.
+    - Briefly explain why their solution is optimal (e.g., "Excellent work! Using a hash map here is a great way to achieve O(n) time complexity.").
+    - Then, you MUST SEAMLESSLY transition to a new problem by generating a new JSON object.
+    - Say: "That was very well done. Let's try one more. I'm generating the next problem for you now."
+    - Then, on a new line, provide a NEW, MEDIUM-DIFFICULTY DSA problem in the required JSON format, inside a \`\`\`json ... \`\`\` block. It must be a different problem from the first one.
+
+4.  **If all tests passed AND the solution is optimal (and this is the SECOND problem, dsaProblemsSolved: ${state.dsaProblemsSolved}):**
+    - Congratulate them enthusiastically on solving the second problem.
+    - Transition to the final wrap-up and feedback phase. DO NOT generate another problem.
+    - Say something like: "Fantastic work on both problems! You've shown strong problem-solving skills. Let's wrap up the interview."
+    - Then provide the final comprehensive feedback as described in the 'wrap_up' phase logic.
+    - Set the interview phase to 'wrap_up'.
+
+You are now responding to the candidate. Choose one of the above paths.
+`;
+      if (allTestsPassed && state.dsaProblemsSolved >= 2) {
+          state.phase = 'wrap_up';
+      }
+      // If we are generating a new problem
+      if (allTestsPassed && state.dsaProblemsSolved === 1) {
+          req.session.includeDSAProblem = true;
+      }
+
+    } else if (state.phase === 'introduction' && state.introQuestionsAsked === 0) {
       // Introduction phase - first question
       state.introQuestionsAsked = 1;
       
@@ -399,39 +450,51 @@ Take your time to think through this - I'm looking for both theoretical understa
 Be encouraging but thorough in your feedback.`;
       
     } else if (state.phase === 'core_topics' && state.coreQuestionsAsked === 2) {
-      // After second core question, move to DSA
+      // After second core question, move to DSA problem generation by AI
       state.phase = 'dsa_problem';
+      state.dsaProblemsSolved = 0; // Initialize problem solved counter
       
-      // Select a random DSA problem
-      const selectedProblem = dsaStoryProblems[Math.floor(Math.random() * dsaStoryProblems.length)];
+      fullPrompt = `You are a senior software engineer creating a new coding problem for a technical interview.
+Generate a complete, brand-new, easy-to-medium difficulty data structures and algorithms (DSA) problem.
+
+CRITICAL: You MUST provide your response in a single JSON object, enclosed in a \`\`\`json ... \`\`\` markdown block. Do not write any text outside of the JSON block.
+
+The JSON object must have the following exact structure:
+{
+  "title": "A creative and short problem title",
+  "story": "A short, engaging story to set the scene for the problem.",
+  "problem": "A clear and concise statement of the task.",
+  "requirements": [
+    "A list of requirements, like input/output formats and constraints."
+  ],
+  "testCases": [
+    { "input": "...", "output": "...", "explanation": "..." },
+    { "input": "...", "output": "...", "explanation": "..." },
+    { "input": "...", "output": "...", "explanation": "..." }
+  ],
+  "hiddenTestCases": [
+    { "input": "...", "output": "..." },
+    { "input": "...", "output": "..." },
+    { "input": "...", "output": "..." },
+    { "input": "...", "output": "..." },
+    { "input": "...", "output": "..." }
+  ],
+  "skeletonCode": {
+    "python": "def solution(input_data):\\n    # Your code here\\n    pass",
+    "javascript": "function solution(input_data) {\\n    // Your code here\\n}",
+    "java": "class Solution {\\n    public Object solution(Object input_data) {\\n        // Your code here\\n        return null;\\n    }\\n}",
+    "cpp": "class Solution {\\npublic:\\n    auto solution(auto input_data) {\\n        // Your code here\\n        return {};\\n    }\\n};"
+  }
+}
+
+Important Rules for generation:
+- Ensure all "input" and "output" values in test cases are valid JSON-formatted strings. For example, if the input is an array of strings, it should be formatted like '["a", "b"]'.
+- The problem should be solvable by a candidate with a solid understanding of fundamental DSA concepts like arrays, strings, hashmaps, sorting, or basic recursion.
+- DO NOT include any text before or after the JSON block.
+- The JSON must be valid and parseable.`;
       
-      fullPrompt = `${baseSystemPrompt}
-
-The candidate just answered your second core topic question. You must now transition to the DSA PROBLEM phase and present a coding challenge. Follow this EXACT script:
-
-"Excellent! You've shown good understanding of core concepts. Now let's move on to a coding challenge. I like to make these more interesting with real-world scenarios.
-
-**${selectedProblem.title}**
-
-${selectedProblem.story}
-
-**Problem:** ${selectedProblem.problem}
-
-**Requirements:**
-${selectedProblem.requirements.map(req => `- ${req}`).join('\n')}
-
-**Test Cases:**
-${selectedProblem.testCases.map((tc, i) => `${i + 1}. Input: ${tc.input} → Output: ${tc.output} 
-   Explanation: ${tc.explanation}`).join('\n')}
-
-Please walk me through your approach first, then provide your solution. I'm interested in your thought process as much as the final code!"
-
-DO NOT ask any other questions or make additional comments. Stick to this script exactly.`;
-
-      // Store selected problem for later reference
-      req.session.selectedDSAProblem = selectedProblem;
-      
-      // Set a flag to include problem data in response
+      // We are now generating a problem, not presenting a pre-made one.
+      // The flag will be used by the frontend to know to parse the DSA problem.
       req.session.includeDSAProblem = true;
       
     } else if (state.phase === 'dsa_problem' && !state.dsaGenerated) {
@@ -440,18 +503,14 @@ DO NOT ask any other questions or make additional comments. Stick to this script
       
       fullPrompt = `${baseSystemPrompt}
 
-The candidate is working on the DSA problem you presented. They said: "${message}"
+The candidate has just been presented with the DSA problem. Now, you must act as the interviewer waiting for their approach. The candidate's first response is: "${message}"
 
-Provide constructive feedback on their approach or solution. Focus on:
-- Correctness of their logic
-- Time and space complexity analysis  
-- Code quality and readability
-- Edge case handling
-- Potential optimizations
+Your ONLY job right now is to ask them to explain their approach. Do NOT provide any hints, solutions, or code.
 
-If they're on the right track, encourage them. If they're missing something, provide helpful hints without giving away the complete solution. If their solution is complete, provide thorough feedback and then start wrapping up the interview.
+Acknowledge their readiness and ask them something like:
+"Great. Before you start writing code, could you please walk me through your thought process? How are you planning to tackle this problem?"
 
-Be encouraging but thorough in your technical assessment.`;
+Wait for them to explain their approach. Do not say anything else.`;
       
     } else {
       // Handle final discussion and wrap up
@@ -503,13 +562,107 @@ Be warm, professional, and encouraging in your closing.`;
     });
 
     if (!response.ok) {
+      console.error('❌ Ollama API error:', response.status, response.statusText);
       throw new Error(`Ollama API error: ${response.statusText}`);
     }
 
     const data = await response.json();
+    console.log('✅ Ollama API response received');
+    console.log('Response data keys:', Object.keys(data));
+    console.log('Response length:', data.response?.length || 0);
+    
+    // If we were expecting a DSA problem, parse it from the response
+    if (req.session.includeDSAProblem) {
+      const rawResponse = data.response;
+      console.log('🔍 Raw AI response for DSA problem generation:');
+      console.log('Raw response length:', rawResponse.length);
+      console.log('Raw response (first 500 chars):', rawResponse.substring(0, 500));
+      console.log('Raw response (last 500 chars):', rawResponse.substring(Math.max(0, rawResponse.length - 500)));
+      
+      const jsonMatch = rawResponse.match(/```json\s*([\s\S]*?)\s*```/);
+      console.log('🔍 JSON extraction attempt:');
+      console.log('JSON match found:', !!jsonMatch);
+      
+      // Try alternative patterns if the first one fails
+      let jsonContent = null;
+      if (jsonMatch && jsonMatch[1]) {
+        jsonContent = jsonMatch[1];
+      } else {
+        // Try without the "json" language identifier
+        const altMatch = rawResponse.match(/```\s*([\s\S]*?)\s*```/);
+        if (altMatch && altMatch[1]) {
+          console.log('🔍 Trying alternative JSON pattern (without "json" identifier)');
+          jsonContent = altMatch[1];
+        } else {
+          // Try to find JSON-like content without markdown blocks
+          const jsonLikeMatch = rawResponse.match(/\{\s*"title"\s*:/);
+          if (jsonLikeMatch) {
+            console.log('🔍 Found JSON-like content without markdown blocks');
+            const startIndex = rawResponse.indexOf('{');
+            const endIndex = rawResponse.lastIndexOf('}');
+            if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
+              jsonContent = rawResponse.substring(startIndex, endIndex + 1);
+            }
+          }
+        }
+      }
+      
+      if (jsonContent) {
+        console.log('🔍 Extracted JSON content:');
+        console.log('JSON content length:', jsonContent.length);
+        console.log('JSON content (first 500 chars):', jsonContent.substring(0, 500));
+        console.log('JSON content (last 500 chars):', jsonContent.substring(Math.max(0, jsonContent.length - 500)));
+        
+        try {
+          const dsaProblem = JSON.parse(jsonContent);
+          console.log('✅ Successfully parsed DSA problem JSON:');
+          console.log('Problem title:', dsaProblem.title);
+          console.log('Test cases count:', dsaProblem.testCases?.length || 0);
+          console.log('Hidden test cases count:', dsaProblem.hiddenTestCases?.length || 0);
+          console.log('Skeleton code languages:', Object.keys(dsaProblem.skeletonCode || {}));
+          
+          req.session.selectedDSAProblem = dsaProblem;
+          state.dsaGenerated = true;
+          req.session.interviewState = state;
+          req.session.includeDSAProblem = false; // Reset flag
+
+          const interviewerMessage = "Excellent! You've shown a good grasp of the core concepts. Now, let's move on to a coding challenge. The problem details should be visible on your screen. Please take a moment to read it, and then walk me through your approach before you start coding.";
+
+          history.push({ role: 'interviewer', content: interviewerMessage });
+          req.session.conversationHistory = history;
+
+          console.log('📋 Parsed and sending AI-generated DSA problem:', dsaProblem.title);
+          
+          return res.json({ 
+            response: interviewerMessage,
+            phase: state.phase,
+            dsaProblem: dsaProblem,
+            progress: {
+              step: state.step,
+              coreQuestionsAsked: state.coreQuestionsAsked,
+              dsaGenerated: state.dsaGenerated,
+              usedTopics: state.usedTopics
+            }
+          });
+        } catch (e) {
+          console.error("❌ Failed to parse DSA problem JSON from AI:", e);
+          console.error("❌ JSON parsing error details:", e.message);
+          console.error("❌ Attempted to parse:", jsonContent);
+          return res.status(500).json({ error: 'The AI failed to generate a valid coding problem. Please try advancing the interview again.' });
+        }
+      } else {
+        console.error("❌ AI did not return a valid JSON block for the DSA problem.");
+        console.error("❌ Full raw response:", rawResponse);
+        console.error("❌ JSON regex patterns tried: /```json\\s*([\\s\\S]*?)\\s*```/, /```\\s*([\\s\\S]*?)\\s*```/, and JSON-like content search");
+        return res.status(500).json({ error: 'The AI failed to provide the coding problem in the correct format. Please try again.' });
+      }
+    }
     
     // Enhanced response cleaning
     const cleanResponse = (response) => {
+      console.log('🧹 Starting response cleaning...');
+      console.log('Original response length:', response.length);
+      
       // Remove <think>...</think> blocks and variations
       let cleaned = response.replace(/<think>[\s\S]*?<\/think>/gi, '');
       cleaned = cleaned.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
@@ -524,8 +677,12 @@ Be warm, professional, and encouraging in your closing.`;
       cleaned = cleaned.replace(/\n\s*\n\s*\n/g, '\n\n');
       cleaned = cleaned.trim();
       
+      console.log('Cleaned response length:', cleaned.length);
+      console.log('Cleaned response (first 200 chars):', cleaned.substring(0, 200));
+      
       // If the response is empty after cleaning, provide a fallback
       if (!cleaned || cleaned.length < 10) {
+        console.log('⚠️ Response was too short after cleaning, using fallback');
         cleaned = "I apologize, but I need to process that response better. Could you please repeat your answer? I want to make sure I give you proper feedback.";
       }
       
