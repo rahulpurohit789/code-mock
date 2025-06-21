@@ -3,6 +3,7 @@ const cors = require('cors');
 const fetch = require('node-fetch');
 const dotenv = require('dotenv');
 const session = require('express-session');
+const { executeCode } = require('./src/controllers/codeController');
 
 dotenv.config();
 
@@ -69,186 +70,12 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', interviewer: 'Code Mock is ready!' });
 });
 
-// Code execution endpoint
-app.post('/api/code/execute', async (req, res) => {
-  try {
-    const { code, language, testCases, isSubmission } = req.body;
-    
-    // Validate input
-    if (!code || !language) {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Code and language are required' 
-      });
-    }
-
-    // Language versions for code execution
-    const languageVersions = {
-      python: "3.10",
-      javascript: "18.15.0",
-      java: "15.0.2",
-      cpp: "10.2.0"
-    };
-
-    // Get language version
-    const version = languageVersions[language.toLowerCase()] || "latest";
-    
-    // Process each test case
-    const testResults = [];
-    if (testCases && testCases.length > 0) {
-      for (const testCase of testCases) {
-        try {
-          // Modify code for current test case
-          let modifiedCode = code;
-          
-          // For Python, wrap the input
-          if (language.toLowerCase() === 'python') {
-            modifiedCode = `${code}\n\n# Test case execution\ninput_data = ${testCase.input}\nresult = solution(input_data)\nprint(result)`;
-          }
-          // For JavaScript, wrap the input
-          else if (language.toLowerCase() === 'javascript') {
-            modifiedCode = `${code}\n\n// Test case execution\nconst input_data = ${testCase.input};\nconst result = solution(input_data);\nconsole.log(JSON.stringify(result));`;
-          }
-          // For Java, wrap the input
-          else if (language.toLowerCase() === 'java') {
-            modifiedCode = `${code}\n\n// Test case execution\npublic class Main {\n    public static void main(String[] args) {\n        Object input_data = ${testCase.input};\n        Object result = solution(input_data);\n        System.out.println(result);\n    }\n}`;
-          }
-          // For C++, wrap the input
-          else if (language.toLowerCase() === 'cpp') {
-            modifiedCode = `${code}\n\n// Test case execution\nint main() {\n    auto input_data = ${testCase.input};\n    auto result = solution(input_data);\n    std::cout << result << std::endl;\n    return 0;\n}`;
-          }
-
-          // Call Piston API for code execution
-          const response = await fetch('https://emkc.org/api/v2/piston/execute', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              language: language.toLowerCase(),
-              version: version,
-              files: [{
-                name: `main.${language.toLowerCase() === 'python' ? 'py' : language.toLowerCase() === 'javascript' ? 'js' : language.toLowerCase() === 'java' ? 'java' : 'cpp'}`,
-                content: modifiedCode
-              }]
-            }),
-          });
-
-          if (!response.ok) {
-            throw new Error(`Piston API error: ${response.statusText}`);
-          }
-
-          const data = await response.json();
-          
-          // Extract output
-          const actualOutput = data.run?.stdout?.trim() || '';
-          const errorOutput = data.run?.stderr?.trim() || '';
-          
-          if (errorOutput) {
-            testResults.push({
-              input: testCase.input,
-              expectedOutput: testCase.expectedOutput,
-              actualOutput: errorOutput,
-              passed: false,
-              error: errorOutput
-            });
-            continue;
-          }
-          
-          // Normalize outputs for comparison
-          const normalizeOutput = (str) => {
-            if (!str) return '';
-            
-            let normalized = str.toString()
-              .replace(/[\s\n\r\t]+/g, '') // Remove all whitespace, newlines, tabs
-              .replace(/^["']|["']$/g, '') // Remove leading/trailing quotes
-              .trim();
-            
-            // Convert Python dictionary format to JSON format
-            normalized = normalized
-              .replace(/'/g, '"') // Convert single quotes to double quotes
-              .replace(/True/g, 'true') // Convert Python boolean to JSON
-              .replace(/False/g, 'false') // Convert Python boolean to JSON
-              .replace(/None/g, 'null'); // Convert Python None to JSON null
-            
-            // Handle array/object formatting
-            normalized = normalized
-              .replace(/\[/g, '[')
-              .replace(/\]/g, ']')
-              .replace(/,/g, ', ')
-              .replace(/,\s*]/g, ']') // Remove trailing commas in arrays
-              .replace(/,\s*}/g, '}'); // Remove trailing commas in objects
-            
-            return normalized;
-          };
-          
-          const normalizedActual = normalizeOutput(actualOutput);
-          const normalizedExpected = normalizeOutput(testCase.expectedOutput);
-          
-          console.log('🔍 Output comparison:');
-          console.log('  Original actual:', actualOutput);
-          console.log('  Original expected:', testCase.expectedOutput);
-          console.log('  Normalized actual:', normalizedActual);
-          console.log('  Normalized expected:', normalizedExpected);
-          console.log('  Match:', normalizedActual === normalizedExpected);
-          
-          testResults.push({
-            input: testCase.input,
-            expectedOutput: testCase.expectedOutput,
-            actualOutput: actualOutput,
-            passed: normalizedActual === normalizedExpected,
-            error: null
-          });
-        } catch (error) {
-          console.error('Error executing test case:', error);
-          testResults.push({
-            input: testCase.input,
-            expectedOutput: testCase.expectedOutput,
-            actualOutput: 'Execution failed',
-            passed: false,
-            error: error.message
-          });
-        }
-      }
-    }
-
-    // Format the final response
-    const result = {
-      success: true,
-      data: {
-        language: language,
-        version: version,
-        testResults: testResults
-      }
-    };
-
-    // Add submission status for submission requests
-    if (isSubmission && testResults.length > 0) {
-      const allPassed = testResults.every(test => test.passed);
-      result.data.submissionStatus = allPassed ? 'Accepted' : 'Wrong Answer';
-      result.data.runtime = Math.floor(Math.random() * 100) + 1; // Mock runtime
-      result.data.memory = Math.floor(Math.random() * 50) + 10; // Mock memory usage
-    }
-
-    res.json(result);
-
-  } catch (error) {
-    console.error('Code execution error:', error);
-    
-    res.status(500).json({ 
-      success: false,
-      error: 'Failed to execute code',
-      details: error.message || 'Unknown error occurred'
-    });
-  }
-});
-
 // Chat endpoint
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message, type, code, results, language } = req.body;
+    const { message, type, code, results, language, testCases } = req.body;
     
-    if (!message && type !== 'dsa_solution') {
+    if (!message && type !== 'code_analysis') {
       return res.status(400).json({ error: 'Message is required' });
     }
 
@@ -271,7 +98,7 @@ app.post('/api/chat', async (req, res) => {
     const history = req.session.conversationHistory;
 
     // Add the latest user message to the history
-    if (type !== 'dsa_solution') {
+    if (type !== 'code_analysis') {
       history.push({ role: 'candidate', content: message });
     }
 
@@ -281,88 +108,75 @@ app.post('/api/chat', async (req, res) => {
 IMPORTANT: You are the interviewer. Respond directly to the candidate. Do NOT create scripts, examples, or hypothetical conversations.`;
 
     // Log current phase for debugging
-    console.log('Current phase:', state.phase);
-    console.log('Intro questions asked:', state.introQuestionsAsked);
-    console.log('Core questions asked:', state.coreQuestionsAsked);
-    console.log('Used topics:', state.usedTopics);
-    console.log('DSA generated:', state.dsaGenerated);
-    console.log('User message:', message?.substring(0, 100) + '...');
+    console.log('🔍 Current interview state:');
+    console.log('  - Phase:', state.phase);
+    console.log('  - Intro questions asked:', state.introQuestionsAsked);
+    console.log('  - Core questions asked:', state.coreQuestionsAsked);
+    console.log('  - Used topics:', state.usedTopics);
+    console.log('  - DSA generated:', state.dsaGenerated);
+    console.log('  - User message:', message?.substring(0, 100) + '...');
+    console.log('  - Message type:', type);
 
     // INTERVIEW FLOW LOGIC
-    if (type === 'dsa_solution') {
-      const problem = req.session.selectedDSAProblem;
-      if (!problem) {
-        return res.status(400).json({ error: "Cannot find problem in session. Please restart the interview." });
-      }
-
-      const allTestsPassed = results.testResults.every(r => r.passed);
+    if (type === 'code_analysis') {
+      console.log('🔍 Executing code analysis path');
       
-      // Increment solved count if all tests passed
-      if (allTestsPassed) {
-        state.dsaProblemsSolved = (state.dsaProblemsSolved || 0) + 1;
-      }
-
-      history.push({ 
-        role: 'system', 
-        content: `The candidate has submitted a solution. All tests passed: ${allTestsPassed}. Submission details: ${JSON.stringify(results)}`
-      });
-
+      const allTestsPassed = results.testResults.every(r => r.passed);
+      const passedTests = results.testResults.filter(r => r.passed).length;
+      const totalTests = results.testResults.length;
+      
       fullPrompt = `${baseSystemPrompt}
 
-You are currently in the DSA problem phase. The candidate has just submitted the following code for the problem titled "${problem.title}".
+You are analyzing the candidate's code solution. Here are the details:
 
-PROBLEM DESCRIPTION:
-- Story: ${problem.story}
-- Problem: ${problem.problem}
-- Requirements: ${problem.requirements.join(', ')}
-
-CANDIDATE'S SUBMITTED CODE (${language}):
+CANDIDATE'S CODE (${language}):
 \`\`\`${language}
 ${code}
 \`\`\`
 
 TEST RESULTS:
-- Submission Status: ${results.submissionStatus}
-- ${results.testResults.filter(r => !r.passed).length} out of ${results.testResults.length} test cases failed.
+- Total test cases: ${totalTests}
+- Passed: ${passedTests}
+- Failed: ${totalTests - passedTests}
+- All tests passed: ${allTestsPassed}
+
+TEST CASE DETAILS:
+${results.testResults.map((test, index) => 
+  `Test ${index + 1}: ${test.passed ? 'PASSED' : 'FAILED'}
+   Input: ${test.input}
+   Expected: ${test.expectedOutput}
+   Actual: ${test.actualOutput}
+   ${test.error ? `Error: ${test.error}` : ''}`
+).join('\n')}
 
 YOUR TASK:
-Based on the code and the test results, analyze their solution and respond as an interviewer.
+Analyze the candidate's code and ask them thoughtful questions about their solution. Focus on:
 
-1.  **If the code failed any tests (${results.submissionStatus} is 'Wrong Answer'):**
-    - DO NOT reveal the bug directly.
-    - Provide a constructive hint. Point them to the general area of the mistake (e.g., "Have you considered edge cases like an empty input?" or "Take another look at how you're handling duplicates.").
-    - Encourage them to rethink their approach and try again.
+1. **If some tests failed:**
+   - Ask them to explain their approach and identify potential issues
+   - Ask about edge cases they might have missed
+   - Encourage them to think about why certain test cases failed
 
-2.  **If all tests passed BUT the solution is a brute-force or non-optimal approach:**
-    - Acknowledge that the solution is correct and passes the tests.
-    - Ask them about the time and space complexity of their solution.
-    - Gently challenge them to find a more optimal approach. Say something like, "This is a great start and it works correctly. Can you think of a way to optimize this? Perhaps we can solve it without nested loops?"
+2. **If all tests passed:**
+   - Ask about their algorithm's time and space complexity
+   - Ask if they can think of any optimizations
+   - Ask about alternative approaches they considered
+   - Challenge them with follow-up questions about their solution
 
-3.  **If all tests passed AND the solution is optimal (and this is the FIRST problem, dsaProblemsSolved: ${state.dsaProblemsSolved}):**
-    - Congratulate them on an excellent solution.
-    - Briefly explain why their solution is optimal (e.g., "Excellent work! Using a hash map here is a great way to achieve O(n) time complexity.").
-    - Then, you MUST SEAMLESSLY transition to a new problem by generating a new JSON object.
-    - Say: "That was very well done. Let's try one more. I'm generating the next problem for you now."
-    - Then, on a new line, provide a NEW, MEDIUM-DIFFICULTY DSA problem in the required JSON format, inside a \`\`\`json ... \`\`\` block. It must be a different problem from the first one.
+3. **Code quality questions:**
+   - Ask about their variable naming choices
+   - Ask about their code structure and readability
+   - Ask if they would change anything in their solution
 
-4.  **If all tests passed AND the solution is optimal (and this is the SECOND problem, dsaProblemsSolved: ${state.dsaProblemsSolved}):**
-    - Congratulate them enthusiastically on solving the second problem.
-    - Transition to the final wrap-up and feedback phase. DO NOT generate another problem.
-    - Say something like: "Fantastic work on both problems! You've shown strong problem-solving skills. Let's wrap up the interview."
-    - Then provide the final comprehensive feedback as described in the 'wrap_up' phase logic.
-    - Set the interview phase to 'wrap_up'.
+4. **Problem-solving process:**
+   - Ask how they approached the problem initially
+   - Ask about any challenges they faced while coding
+   - Ask what they learned from solving this problem
 
-You are now responding to the candidate. Choose one of the above paths.
-`;
-      if (allTestsPassed && state.dsaProblemsSolved >= 2) {
-          state.phase = 'wrap_up';
-      }
-      // If we are generating a new problem
-      if (allTestsPassed && state.dsaProblemsSolved === 1) {
-          req.session.includeDSAProblem = true;
-      }
-
+Be encouraging but thorough. Ask 2-3 specific questions about their code and approach.`;
+      
     } else if (state.phase === 'introduction' && state.introQuestionsAsked === 0) {
+      console.log('🔍 Executing introduction phase - first question path');
       // Introduction phase - first question
       state.introQuestionsAsked = 1;
       
@@ -375,6 +189,7 @@ You are Code Mock, the interviewer. Introduce yourself and ask them about their 
 Say something like: "Hello there! I'm Code Mock, and I'll be your technical interviewer today. I'm really excited to get to know you and explore your technical skills together! To get started, could you please introduce yourself and tell me about your technical background?"`;
       
     } else if (state.phase === 'introduction' && state.introQuestionsAsked === 1) {
+      console.log('🔍 Executing introduction phase - second question path');
       // Introduction phase - second question
       state.introQuestionsAsked = 2;
       
@@ -393,6 +208,7 @@ Ask them to tell you about a recent project they're particularly proud of, inclu
 Show genuine interest in their project experience.`;
       
     } else if (state.phase === 'introduction' && state.introQuestionsAsked === 2) {
+      console.log('🔍 Executing transition to core topics path');
       // After second introduction question, move to core topics
       state.phase = 'core_topics';
       state.coreQuestionsAsked = 1;
@@ -421,6 +237,7 @@ Take your time to think through this - I'm looking for both your theoretical und
 Be encouraging and show genuine interest in their technical knowledge.`;
       
     } else if (state.phase === 'core_topics' && state.coreQuestionsAsked === 1) {
+      console.log('🔍 Executing core topics - second question path');
       // Second core topic question
       state.coreQuestionsAsked = 2;
       
@@ -450,16 +267,18 @@ Take your time to think through this - I'm looking for both theoretical understa
 Be encouraging but thorough in your feedback.`;
       
     } else if (state.phase === 'core_topics' && state.coreQuestionsAsked === 2) {
+      console.log('🔍 Executing DSA problem generation path');
       // After second core question, move to DSA problem generation by AI
       state.phase = 'dsa_problem';
       state.dsaProblemsSolved = 0; // Initialize problem solved counter
       
       fullPrompt = `You are a senior software engineer creating a new coding problem for a technical interview.
+
+CRITICAL: You MUST respond with ONLY a valid JSON object. No other text, no explanations, no markdown formatting.
+
 Generate a complete, brand-new, easy-to-medium difficulty data structures and algorithms (DSA) problem.
 
-CRITICAL: You MUST provide your response in a single JSON object, enclosed in a \`\`\`json ... \`\`\` markdown block. Do not write any text outside of the JSON block.
-
-The JSON object must have the following exact structure:
+REQUIRED JSON STRUCTURE (respond with ONLY this JSON, nothing else):
 {
   "title": "A creative and short problem title",
   "story": "A short, engaging story to set the scene for the problem.",
@@ -487,17 +306,37 @@ The JSON object must have the following exact structure:
   }
 }
 
-Important Rules for generation:
-- Ensure all "input" and "output" values in test cases are valid JSON-formatted strings. For example, if the input is an array of strings, it should be formatted like '["a", "b"]'.
-- The problem should be solvable by a candidate with a solid understanding of fundamental DSA concepts like arrays, strings, hashmaps, sorting, or basic recursion.
-- DO NOT include any text before or after the JSON block.
-- The JSON must be valid and parseable.`;
+CRITICAL RULES FOR TEST CASES:
+- Input and output must be valid JSON strings that can be parsed by JSON.parse()
+- For array inputs, use format: "[1,2,3]" (with quotes)
+- For string inputs, use format: "hello" (with quotes)
+- For number inputs, use format: 42 (without quotes)
+- For boolean inputs, use format: true or false (without quotes)
+- For object inputs, use format: "{\\"key\\":\\"value\\"}" (with escaped quotes)
+- NEVER use single quotes, only double quotes
+- Ensure input format matches what the solution function expects
+- Test cases should cover edge cases and normal cases
+- All test cases must be consistent in their input/output format
+
+EXAMPLE CORRECT TEST CASES:
+- Array problem: {"input": "[1,2,3]", "output": "6", "explanation": "Sum of array elements"}
+- String problem: {"input": "\\"hello\\"", "output": "5", "explanation": "Length of string"}
+- Number problem: {"input": 42, "output": 84, "explanation": "Double the number"}
+
+RULES:
+- Respond with ONLY the JSON object above, starting with { and ending with }
+- Do NOT include any markdown formatting, code blocks, or explanatory text
+- The main function in skeleton code for ALL languages MUST be named 'solution'
+- All input/output values in test cases must be valid JSON strings
+- The problem should be solvable with fundamental DSA concepts
+- NO CONVERSATION, NO EXPLANATIONS - ONLY THE JSON OBJECT`;
       
       // We are now generating a problem, not presenting a pre-made one.
       // The flag will be used by the frontend to know to parse the DSA problem.
       req.session.includeDSAProblem = true;
       
     } else if (state.phase === 'dsa_problem' && !state.dsaGenerated) {
+      console.log('🔍 Executing DSA problem - waiting for approach path');
       // Mark DSA as generated and wait for solution
       state.dsaGenerated = true;
       
@@ -513,6 +352,7 @@ Acknowledge their readiness and ask them something like:
 Wait for them to explain their approach. Do not say anything else.`;
       
     } else {
+      console.log('🔍 Executing fallback/wrap-up path');
       // Handle final discussion and wrap up
       fullPrompt = `${baseSystemPrompt}
 
@@ -552,11 +392,11 @@ Be warm, professional, and encouraging in your closing.`;
         prompt: fullPrompt,
         stream: false,
         options: {
-          temperature: 0.3, // Lower temperature for more focused responses
-          top_p: 0.7, // Lower top_p for more focused responses
-          max_tokens: 600, // Reasonable response length
+          temperature: req.session.includeDSAProblem ? 0.1 : 0.3, // Lower temperature for JSON generation
+          top_p: req.session.includeDSAProblem ? 0.9 : 0.7, // Higher top_p for JSON generation
+          max_tokens: 1800, // Increased token limit for large JSON
           repeat_penalty: 1.1, // Prevent repetition
-          stop: ['\n\n\n', 'Human:', 'Assistant:'] // Stop at natural breaks
+          stop: req.session.includeDSAProblem ? [] : ['\n\n\n', 'Human:', 'Assistant:'] // No stop tokens for JSON generation
         }
       }),
     });
@@ -579,22 +419,22 @@ Be warm, professional, and encouraging in your closing.`;
       console.log('Raw response (first 500 chars):', rawResponse.substring(0, 500));
       console.log('Raw response (last 500 chars):', rawResponse.substring(Math.max(0, rawResponse.length - 500)));
       
-      const jsonMatch = rawResponse.match(/```json\s*([\s\S]*?)\s*```/);
-      console.log('🔍 JSON extraction attempt:');
-      console.log('JSON match found:', !!jsonMatch);
-      
-      // Try alternative patterns if the first one fails
+      // Try multiple parsing strategies
       let jsonContent = null;
+      
+      // Strategy 1: Look for JSON in markdown code blocks
+      const jsonMatch = rawResponse.match(/```json\s*([\s\S]*?)\s*```/);
       if (jsonMatch && jsonMatch[1]) {
-        jsonContent = jsonMatch[1];
+        jsonContent = jsonMatch[1].trim();
+        console.log('✅ Found JSON in markdown code block');
       } else {
-        // Try without the "json" language identifier
+        // Strategy 2: Look for any code block
         const altMatch = rawResponse.match(/```\s*([\s\S]*?)\s*```/);
         if (altMatch && altMatch[1]) {
           console.log('🔍 Trying alternative JSON pattern (without "json" identifier)');
-          jsonContent = altMatch[1];
+          jsonContent = altMatch[1].trim();
         } else {
-          // Try to find JSON-like content without markdown blocks
+          // Strategy 3: Look for JSON-like content without markdown blocks
           const jsonLikeMatch = rawResponse.match(/\{\s*"title"\s*:/);
           if (jsonLikeMatch) {
             console.log('🔍 Found JSON-like content without markdown blocks');
@@ -602,6 +442,13 @@ Be warm, professional, and encouraging in your closing.`;
             const endIndex = rawResponse.lastIndexOf('}');
             if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
               jsonContent = rawResponse.substring(startIndex, endIndex + 1);
+            }
+          } else {
+            // Strategy 4: Try to find any JSON object in the response
+            const anyJsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+            if (anyJsonMatch) {
+              console.log('🔍 Found potential JSON object in response');
+              jsonContent = anyJsonMatch[0];
             }
           }
         }
@@ -613,48 +460,235 @@ Be warm, professional, and encouraging in your closing.`;
         console.log('JSON content (first 500 chars):', jsonContent.substring(0, 500));
         console.log('JSON content (last 500 chars):', jsonContent.substring(Math.max(0, jsonContent.length - 500)));
         
+        // --- JSON Repair Step ---
+        function repairJsonString(str) {
+          let fixed = str;
+          // Replace single quotes with double quotes
+          fixed = fixed.replace(/'/g, '"');
+          // Remove trailing commas before } or ]
+          fixed = fixed.replace(/,\s*([}\]])/g, '$1');
+          
+          // Enhanced test case validation and repair
+          // Fix input format issues
+          fixed = fixed.replace(/"input"\s*:\s*([^\[\"{][^,}]*)/g, function(match, p1) {
+            const trimmed = p1.trim();
+            // If it's a number, keep it as is
+            if (!isNaN(trimmed) && trimmed !== '') {
+              return `"input": ${trimmed}`;
+            }
+            // If it's a boolean, keep it as is
+            if (trimmed === 'true' || trimmed === 'false') {
+              return `"input": ${trimmed}`;
+            }
+            // If it's not starting with [ or " or {, wrap in quotes
+            if (!trimmed.startsWith('[') && !trimmed.startsWith('"') && !trimmed.startsWith('{')) {
+              return `"input": "${trimmed.replace(/"/g, '')}"`;
+            }
+            return match;
+          });
+          
+          // Fix output format issues
+          fixed = fixed.replace(/"output"\s*:\s*([^\[\"{][^,}]*)/g, function(match, p1) {
+            const trimmed = p1.trim();
+            // If it's a number, keep it as is
+            if (!isNaN(trimmed) && trimmed !== '') {
+              return `"output": ${trimmed}`;
+            }
+            // If it's a boolean, keep it as is
+            if (trimmed === 'true' || trimmed === 'false') {
+              return `"output": ${trimmed}`;
+            }
+            // If it's not starting with [ or " or {, wrap in quotes
+            if (!trimmed.startsWith('[') && !trimmed.startsWith('"') && !trimmed.startsWith('{')) {
+              return `"output": "${trimmed.replace(/"/g, '')}"`;
+            }
+            return match;
+          });
+          
+          // Validate and fix array inputs that might be missing quotes
+          fixed = fixed.replace(/"input"\s*:\s*\[([^\]]+)\]/g, function(match, content) {
+            // If the array content doesn't look like it's properly quoted, fix it
+            if (!content.includes('"') && content.includes(',')) {
+              const items = content.split(',').map(item => {
+                const trimmed = item.trim();
+                if (!isNaN(trimmed)) {
+                  return trimmed; // Keep numbers as is
+                }
+                return `"${trimmed}"`; // Quote strings
+              });
+              return `"input": [${items.join(',')}]`;
+            }
+            return match;
+          });
+          
+          return fixed;
+        }
+        // --- End JSON Repair Step ---
+        
+        let dsaProblem = null;
+        let parseError = null;
         try {
-          const dsaProblem = JSON.parse(jsonContent);
+          dsaProblem = JSON.parse(jsonContent);
+        } catch (e) {
+          // Try to repair and parse again
+          try {
+            const repaired = repairJsonString(jsonContent);
+            dsaProblem = JSON.parse(repaired);
+            console.warn('⚠️ JSON was repaired before parsing.');
+          } catch (e2) {
+            parseError = e2;
+          }
+        }
+        if (dsaProblem) {
           console.log('✅ Successfully parsed DSA problem JSON:');
           console.log('Problem title:', dsaProblem.title);
           console.log('Test cases count:', dsaProblem.testCases?.length || 0);
           console.log('Hidden test cases count:', dsaProblem.hiddenTestCases?.length || 0);
           console.log('Skeleton code languages:', Object.keys(dsaProblem.skeletonCode || {}));
           
+          // Validate and fix test cases
+          const validateAndFixTestCases = (testCases) => {
+            if (!testCases || !Array.isArray(testCases)) return [];
+            
+            return testCases.map((testCase, index) => {
+              const fixed = { ...testCase };
+              
+              // Ensure input is properly formatted
+              if (typeof fixed.input === 'string') {
+                try {
+                  // Try to parse as JSON to validate
+                  JSON.parse(fixed.input);
+                } catch (e) {
+                  // If it's a number, convert to number format
+                  if (!isNaN(fixed.input) && fixed.input !== '') {
+                    fixed.input = parseFloat(fixed.input);
+                  } else if (fixed.input === 'true' || fixed.input === 'false') {
+                    fixed.input = fixed.input === 'true';
+                  } else {
+                    // If it's not a valid JSON string, wrap it in quotes
+                    fixed.input = `"${fixed.input.replace(/"/g, '')}"`;
+                  }
+                }
+              }
+              
+              // Ensure output is properly formatted
+              if (typeof fixed.output === 'string') {
+                try {
+                  // Try to parse as JSON to validate
+                  JSON.parse(fixed.output);
+                } catch (e) {
+                  // If it's a number, convert to number format
+                  if (!isNaN(fixed.output) && fixed.output !== '') {
+                    fixed.output = parseFloat(fixed.output);
+                  } else if (fixed.output === 'true' || fixed.output === 'false') {
+                    fixed.output = fixed.output === 'true';
+                  } else {
+                    // If it's not a valid JSON string, wrap it in quotes
+                    fixed.output = `"${fixed.output.replace(/"/g, '')}"`;
+                  }
+                }
+              }
+              
+              console.log(`Test case ${index + 1}: input=${JSON.stringify(fixed.input)}, output=${JSON.stringify(fixed.output)}`);
+              return fixed;
+            });
+          };
+          
+          // Fix test cases
+          dsaProblem.testCases = validateAndFixTestCases(dsaProblem.testCases);
+          dsaProblem.hiddenTestCases = validateAndFixTestCases(dsaProblem.hiddenTestCases);
+          
+          // Validate the parsed problem has required fields
+          if (!dsaProblem.title || !dsaProblem.problem || !dsaProblem.testCases || !dsaProblem.skeletonCode) {
+            throw new Error('Generated problem is missing required fields');
+          }
           req.session.selectedDSAProblem = dsaProblem;
           state.dsaGenerated = true;
           req.session.interviewState = state;
           req.session.includeDSAProblem = false; // Reset flag
-
           const interviewerMessage = "Excellent! You've shown a good grasp of the core concepts. Now, let's move on to a coding challenge. The problem details should be visible on your screen. Please take a moment to read it, and then walk me through your approach before you start coding.";
-
           history.push({ role: 'interviewer', content: interviewerMessage });
           req.session.conversationHistory = history;
-
-          console.log('📋 Parsed and sending AI-generated DSA problem:', dsaProblem.title);
-          
-          return res.json({ 
-            response: interviewerMessage,
-            phase: state.phase,
-            dsaProblem: dsaProblem,
-            progress: {
-              step: state.step,
-              coreQuestionsAsked: state.coreQuestionsAsked,
-              dsaGenerated: state.dsaGenerated,
-              usedTopics: state.usedTopics
+          return res.json({ dsaProblem, response: interviewerMessage, phase: state.phase });
+        } else {
+          // Fallback DSA problem if repair also fails
+          console.error('❌ JSON parsing failed after repair:', parseError);
+          const fallbackDSA = {
+            title: "Sum of Array Elements",
+            story: "You are given an array of integers. Your task is to find the sum of all the elements in the array.",
+            problem: "Given an array of integers, return the sum of its elements.",
+            requirements: [
+              "Input: An array of integers (length 1-1000, values -10^6 to 10^6)",
+              "Output: An integer representing the sum of the array elements."
+            ],
+            testCases: [
+              { input: "[1,2,3,4,5]", output: "15", explanation: "1+2+3+4+5=15" },
+              { input: "[0,0,0]", output: "0", explanation: "All elements are zero." },
+              { input: "[-1,1,-1,1]", output: "0", explanation: "Sum of positives and negatives is zero." }
+            ],
+            hiddenTestCases: [
+              { input: "[100,200,300]", output: "600" },
+              { input: "[42]", output: "42" },
+              { input: "[-1000,1000]", output: "0" },
+              { input: "[1,2,3,4,5,6,7,8,9,10]", output: "55" },
+              { input: "[999999,-999999]", output: "0" }
+            ],
+            skeletonCode: {
+              python: "def solution(input_data):\n    # Your code here\n    pass",
+              javascript: "function solution(input_data) {\n    // Your code here\n}",
+              java: "class Solution {\n    public Object solution(Object input_data) {\n        // Your code here\n        return null;\n    }\n}",
+              cpp: "class Solution {\npublic:\n    auto solution(auto input_data) {\n        // Your code here\n        return {};\n    }\n};"
             }
-          });
-        } catch (e) {
-          console.error("❌ Failed to parse DSA problem JSON from AI:", e);
-          console.error("❌ JSON parsing error details:", e.message);
-          console.error("❌ Attempted to parse:", jsonContent);
-          return res.status(500).json({ error: 'The AI failed to generate a valid coding problem. Please try advancing the interview again.' });
+          };
+          req.session.selectedDSAProblem = fallbackDSA;
+          state.dsaGenerated = true;
+          req.session.interviewState = state;
+          req.session.includeDSAProblem = false;
+          const interviewerMessage = "The AI failed to generate a new problem, so here is a fallback problem. Please solve it as you would in a real interview.";
+          history.push({ role: 'interviewer', content: interviewerMessage });
+          req.session.conversationHistory = history;
+          return res.json({ dsaProblem: fallbackDSA, response: interviewerMessage, phase: state.phase });
         }
       } else {
         console.error("❌ AI did not return a valid JSON block for the DSA problem.");
         console.error("❌ Full raw response:", rawResponse);
         console.error("❌ JSON regex patterns tried: /```json\\s*([\\s\\S]*?)\\s*```/, /```\\s*([\\s\\S]*?)\\s*```/, and JSON-like content search");
-        return res.status(500).json({ error: 'The AI failed to provide the coding problem in the correct format. Please try again.' });
+        // Fallback DSA problem
+        const fallbackDSA = {
+          title: "Sum of Array Elements",
+          story: "You are given an array of integers. Your task is to find the sum of all the elements in the array.",
+          problem: "Given an array of integers, return the sum of its elements.",
+          requirements: [
+            "Input: An array of integers (length 1-1000, values -10^6 to 10^6)",
+            "Output: An integer representing the sum of the array elements."
+          ],
+          testCases: [
+            { input: "[1,2,3,4,5]", output: "15", explanation: "1+2+3+4+5=15" },
+            { input: "[0,0,0]", output: "0", explanation: "All elements are zero." },
+            { input: "[-1,1,-1,1]", output: "0", explanation: "Sum of positives and negatives is zero." }
+          ],
+          hiddenTestCases: [
+            { input: "[100,200,300]", output: "600" },
+            { input: "[42]", output: "42" },
+            { input: "[-1000,1000]", output: "0" },
+            { input: "[1,2,3,4,5,6,7,8,9,10]", output: "55" },
+            { input: "[999999,-999999]", output: "0" }
+          ],
+          skeletonCode: {
+            python: "def solution(input_data):\n    # Your code here\n    pass",
+            javascript: "function solution(input_data) {\n    // Your code here\n}",
+            java: "class Solution {\n    public Object solution(Object input_data) {\n        // Your code here\n        return null;\n    }\n}",
+            cpp: "class Solution {\npublic:\n    auto solution(auto input_data) {\n        // Your code here\n        return {};\n    }\n};"
+          }
+        };
+        req.session.selectedDSAProblem = fallbackDSA;
+        state.dsaGenerated = true;
+        req.session.interviewState = state;
+        req.session.includeDSAProblem = false;
+        const interviewerMessage = "The AI failed to generate a new problem, so here is a fallback problem. Please solve it as you would in a real interview.";
+        history.push({ role: 'interviewer', content: interviewerMessage });
+        req.session.conversationHistory = history;
+        return res.json({ dsaProblem: fallbackDSA, response: interviewerMessage, phase: state.phase });
       }
     }
     
@@ -844,6 +878,9 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Code execution endpoint
+app.post('/api/code/execute', executeCode);
+
 app.listen(port, () => {
   console.log(`🚀 Code Mock Interview Server running on http://localhost:${port}`);
   console.log('\n📋 Interview Flow:');
@@ -858,6 +895,7 @@ app.listen(port, () => {
   console.log('- GET /api/status - Get current interview status');
   console.log('- POST /api/force-transition - Force phase transition (testing)');
   console.log('- GET /api/test-flow - Test interview flow');
+  console.log('- POST /api/code/execute - Execute code');
   console.log('\n🤖 Make sure Ollama is running with qwen2.5-coder:7b model!');
   console.log('💡 Code Mock is ready to conduct technical interviews!');
 });

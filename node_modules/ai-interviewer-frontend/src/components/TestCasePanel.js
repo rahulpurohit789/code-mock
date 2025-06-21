@@ -13,12 +13,10 @@ const TestCasePanel = ({
 }) => {
   const [showAddModal, setShowAddModal] = useState(false);
 
-  const allTestCases = [
-    ...testCases.map((tc, index) => ({ ...tc, index, type: 'visible' })),
-    ...hiddenTestCases.map((tc, index) => ({ ...tc, index: index + testCases.length, type: 'hidden' }))
-  ];
+  // Only show visible test cases in the UI
+  const visibleTestCases = testCases.map((tc, index) => ({ ...tc, index, type: 'visible' }));
 
-  if (!allTestCases || allTestCases.length === 0) {
+  if (!visibleTestCases || visibleTestCases.length === 0) {
     return (
       <div 
         className="h-full flex flex-col items-center justify-center"
@@ -46,13 +44,13 @@ const TestCasePanel = ({
       {/* Header with test case counts */}
       <div className="p-3 border-b" style={{ borderColor: themeColors.border.primary }}>
         <div className="flex justify-between items-center text-sm" style={{ color: themeColors.text.secondary }}>
-          <span>Visible: {testCases.length}</span>
+          <span>Test Cases: {visibleTestCases.length}</span>
           <span>Hidden: {hiddenTestCases.length}</span>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {allTestCases.map((testCase, index) => (
+        {visibleTestCases.map((testCase, index) => (
           <button
             key={index}
             onClick={() => onTestCaseChange(testCase.index)}
@@ -66,16 +64,8 @@ const TestCasePanel = ({
             <div className="flex justify-between items-center">
               <div className="flex items-center space-x-2">
                 <span className="font-medium">
-                  {testCase.type === 'hidden' ? '🔒' : '👁️'} Test Case {testCase.index + 1}
+                  👁️ Test Case {testCase.index + 1}
                 </span>
-                {testCase.type === 'hidden' && (
-                  <span className="text-xs px-2 py-1 rounded" style={{ 
-                    backgroundColor: themeColors.text.accent,
-                    color: '#ffffff'
-                  }}>
-                    Hidden
-                  </span>
-                )}
               </div>
             </div>
             <div 

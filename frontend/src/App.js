@@ -4,7 +4,6 @@ import CodeEditor from './components/CodeEditor';
 import ProblemPanel from './components/ProblemPanel';
 import TestCasePanel from './components/TestCasePanel';
 import TestResultPanel from './components/TestResultPanel';
-import SubmissionPanel from './components/SubmissionPanel';
 import Header from './components/Header';
 import Footer from './components/Footer';
 import ResizeWrapper from './components/ResizeWrapper';
@@ -33,7 +32,6 @@ function App() {
   const [code, setCode] = useState('');
   const [language, setLanguage] = useState('python');
   const [output, setOutput] = useState(null);
-  const [submissionResult, setSubmissionResult] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [testCases, setTestCases] = useState([]);
@@ -41,7 +39,6 @@ function App() {
   const [problemDescription, setProblemDescription] = useState('');
   const [activeTestCase, setActiveTestCase] = useState(0);
   const [activeTab, setActiveTab] = useState('testcase'); // 'testcase' or 'result'
-  const [showSubmission, setShowSubmission] = useState(false);
   const editorRef = useRef(null);
   const [isResizing, setIsResizing] = useState(false);
   const [descriptionHeight, setDescriptionHeight] = useState(50); // percentage
@@ -136,106 +133,92 @@ function App() {
 
     } catch (error) {
       console.error('Error during chat:', error);
+      const backendError = error.response?.data?.error || 'An unknown error occurred.';
+      const backendDetails = error.response?.data?.details || 'Please check the backend console for more information.';
       setMessages(prev => [...prev, {
         type: 'bot',
-        content: 'Sorry, I encountered an error. Please check the console or try again.'
+        content: `Sorry, I encountered an error. \n\n**Error:** ${backendError}\n**Details:** ${backendDetails}`
       }]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const executeCode = async (isSubmission = false) => {
+  const executeCode = async () => {
+    setIsLoading(true);
+    setOutput(null);
+
     try {
-      setIsLoading(true);
-      setOutput(null);
-
-      // Validate code
       if (!code || !code.trim()) {
-        const errorOutput = { error: 'Please enter some code to execute' };
-        if (isSubmission) {
-          setSubmissionResult({ success: false, error: errorOutput.error });
-          setShowSubmission(true);
-        } else {
-          setOutput(errorOutput);
-        }
-        return;
+        throw new Error('Please enter some code to execute');
       }
-
-      // Determine which test cases to use
-      const testCasesToUse = isSubmission 
-        ? [...testCases, ...hiddenTestCases]  // Include hidden test cases for submission
-        : testCases;  // Only visible test cases for regular test runs
-
-      console.log(`🚀 Executing code (${isSubmission ? 'submission' : 'test run'})`);
-      console.log(`📊 Test cases to run: ${testCasesToUse.length} (${testCases.length} visible + ${hiddenTestCases.length} hidden)`);
 
       const response = await axios.post('http://localhost:3001/api/code/execute', {
         code: code.trim(),
         language,
-        testCases: testCasesToUse,
-        isSubmission
+        testCases: testCases,
+        isSubmission: false
       });
 
-      console.log('✅ Code execution response received:', response.data.success);
-
-      if (response.data.success) {
-        if (isSubmission) {
-          // Set submission result first
-          setSubmissionResult(response.data);
-          setShowSubmission(true);
-          
-          // Then send to AI for analysis
-          console.log("🤖 Sending submission to AI for analysis...");
-          const analysisPayload = {
-            type: 'dsa_solution',
-            language: language,
-            code: code.trim(),
-            results: response.data.data
-          };
-          
-          try {
-            await handleSendMessage("Here is my solution.", analysisPayload);
-            console.log("✅ AI analysis request sent successfully");
-          } catch (aiError) {
-            console.error("❌ Error sending to AI for analysis:", aiError);
-            // Don't fail the submission if AI analysis fails
-          }
-        } else {
-          // For regular test runs, only show results for visible test cases
-          response.data.data.testResults = response.data.data.testResults.slice(0, testCases.length);
-          setOutput(response.data.data);
-          setActiveTab('result');
-        }
-      } else {
-        const errorOutput = {
-          success: false,
-          error: response.data.error,
-          details: response.data.details
-        };
-        console.log("❌ Code execution failed:", errorOutput);
-        
-        if (isSubmission) {
-          setSubmissionResult(errorOutput);
-          setShowSubmission(true);
-        } else {
-          setOutput(errorOutput);
-        }
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Code execution failed on the server.');
       }
+      
+      setOutput(response.data.data);
+
     } catch (error) {
-      console.error('❌ Error executing code:', error);
-      const errorOutput = {
-        success: false,
-        error: 'Failed to execute code',
-        details: error.response?.data?.message || error.message
+      console.error('❌ Error during code execution:', error);
+      setOutput({
+        error: error.message,
+        details: 'Failed to run test cases.'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const executeAllTestsAndAnalyze = async () => {
+    setIsLoading(true);
+    setOutput(null);
+
+    try {
+      if (!code || !code.trim()) {
+        throw new Error('Please enter some code to execute');
+      }
+
+      // Run all test cases including hidden ones
+      const allTestCases = [...testCases, ...hiddenTestCases];
+      
+      const response = await axios.post('http://localhost:3001/api/code/execute', {
+        code: code.trim(),
+        language,
+        testCases: allTestCases,
+        isSubmission: false
+      });
+
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Code execution failed on the server.');
+      }
+      
+      setOutput(response.data.data);
+
+      // Send code to AI for analysis
+      const analysisPayload = {
+        type: 'code_analysis',
+        language: language,
+        code: code.trim(),
+        results: response.data.data,
+        testCases: allTestCases
       };
       
-      if (isSubmission) {
-        setSubmissionResult(errorOutput);
-        setShowSubmission(true);
-      } else {
-        setOutput(errorOutput);
-      }
+      await handleSendMessage("Please analyze my code and ask me questions about it.", analysisPayload);
+
+    } catch (error) {
+      console.error('❌ Error during code execution and analysis:', error);
+      setOutput({
+        error: error.message,
+        details: 'Failed to run test cases and analyze code.'
+      });
     } finally {
       setIsLoading(false);
     }
@@ -252,17 +235,11 @@ function App() {
       expectedOutput: testCase.expectedOutput
     };
 
-    await executeCode([formattedTestCase]);
+    await executeCode();
   };
 
   const handleRunAllTestCases = async () => {
-    // Run all visible test cases
-    await executeCode(testCases);
-  };
-
-  const handleSubmit = async () => {
-    // Run all test cases including hidden ones
-    await executeCode([...testCases, ...hiddenTestCases], true);
+    await executeCode();
   };
 
   const toggleTheme = () => {
@@ -369,8 +346,6 @@ function App() {
       setHiddenTestCases([]);
       setCode('');
       setOutput(null);
-      setSubmissionResult(null);
-      setShowSubmission(false);
       setInterviewPhase('introduction');
       console.log('Frontend state has been reset.');
 
@@ -422,13 +397,46 @@ function App() {
     }
   };
 
+  const handlePhaseTransition = async (newPhase) => {
+    console.log(`🚀 Forcing transition to: ${newPhase}`);
+    try {
+      await axios.post('http://localhost:3001/api/force-transition', 
+        { phase: newPhase },
+        { withCredentials: true }
+      );
+      
+      setInterviewPhase(newPhase);
+
+      // Add a system message to the chat
+      setMessages(prev => [...prev, {
+        type: 'bot',
+        content: `Switched to ${newPhase.replace('_', ' ')} phase. Please provide your input to continue.`
+      }]);
+      
+      // Optionally reset parts of the state
+      if (newPhase !== 'dsa_problem') {
+        setProblemDescription('');
+        setTestCases([]);
+        setHiddenTestCases([]);
+        setCode('');
+        setOutput(null);
+      }
+      
+    } catch (error) {
+      console.error('Error forcing phase transition:', error);
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col" style={{ backgroundColor: themeColors.background.primary }}>
       <Header isDarkMode={isDarkMode} toggleTheme={toggleTheme} />
 
       {/* Progress Bar and Reset Button */}
       <div className="flex items-center justify-between bg-white dark:bg-[#1e1e1e] border-b px-4 py-2" style={{ borderColor: themeColors.border.primary }}>
-        <InterviewProgressBar phase={interviewPhase} />
+        <InterviewProgressBar 
+          phase={interviewPhase}
+          onPhaseClick={handlePhaseTransition}
+        />
         <button
           onClick={handleResetInterview}
           className="px-3 py-1 rounded bg-orange-500 text-white hover:bg-orange-600 text-sm"
@@ -455,68 +463,35 @@ function App() {
           >
             {/* Left side */}
             <div className="h-full overflow-hidden flex flex-col" style={{ backgroundColor: themeColors.background.secondary }}>
-              <div className="flex border-b" style={{ borderColor: themeColors.border.primary }}>
-                <button
-                  onClick={() => setShowSubmission(false)}
-                  className="px-4 py-2 text-sm font-medium transition-colors duration-150 border-b-2"
-                  style={{
-                    color: !showSubmission ? themeColors.text.primary : themeColors.text.secondary,
-                    borderColor: !showSubmission ? themeColors.text.accent : 'transparent'
-                  }}
-                >
-                  Description
-                </button>
-                {submissionResult && (
-                  <button
-                    onClick={() => setShowSubmission(true)}
-                    className="px-4 py-2 text-sm font-medium transition-colors duration-150 border-b-2"
-                    style={{
-                      color: showSubmission ? themeColors.text.primary : themeColors.text.secondary,
-                      borderColor: showSubmission ? themeColors.text.accent : 'transparent'
-                    }}
-                  >
-                    Submission
-                  </button>
-                )}
-              </div>
               <div className="flex-1 overflow-hidden">
-                {showSubmission ? (
-                  <SubmissionPanel
-                    result={submissionResult}
-                    isDarkMode={isDarkMode}
-                    onClose={() => setShowSubmission(false)}
-                    themeColors={themeColors}
-                  />
-                ) : (
-                  <Split
-                    direction="vertical"
-                    sizes={[60, 40]}
-                    minSize={[200, 150]}
-                    gutterSize={8}
-                    className="split-wrapper h-full"
-                    style={{ display: 'flex', flexDirection: 'column' }}
-                    onDrag={handleSplitDrag}
-                  >
-                    {/* Problem Description */}
-                    <div className="overflow-hidden">
-                      <ProblemPanel
-                        isDarkMode={isDarkMode}
-                        problemDescription={problemDescription}
-                        testCases={testCases}
-                      />
-                    </div>
+                <Split
+                  direction="vertical"
+                  sizes={[60, 40]}
+                  minSize={[200, 150]}
+                  gutterSize={8}
+                  className="split-wrapper h-full"
+                  style={{ display: 'flex', flexDirection: 'column' }}
+                  onDrag={handleSplitDrag}
+                >
+                  {/* Problem Description */}
+                  <div className="overflow-hidden">
+                    <ProblemPanel
+                      isDarkMode={isDarkMode}
+                      problemDescription={problemDescription}
+                      testCases={testCases}
+                    />
+                  </div>
 
-                    {/* Chat Interface */}
-                    <div className="flex-1 overflow-auto">
-                      <ChatBox
-                        isDarkMode={isDarkMode}
-                        messages={messages}
-                        isLoading={isLoading}
-                        onSendMessage={handleSendMessage}
-                      />
-                    </div>
-                  </Split>
-                )}
+                  {/* Chat Interface */}
+                  <div className="flex-1 overflow-auto">
+                    <ChatBox
+                      isDarkMode={isDarkMode}
+                      messages={messages}
+                      isLoading={isLoading}
+                      onSendMessage={handleSendMessage}
+                    />
+                  </div>
+                </Split>
               </div>
             </div>
 
@@ -559,7 +534,7 @@ function App() {
 
                     <div className="flex items-center space-x-2">
                       <button
-                        onClick={() => executeCode(false)}
+                        onClick={() => executeCode()}
                         disabled={isLoading}
                         className="px-4 py-1 rounded-md transition-colors duration-150"
                         style={{
@@ -571,7 +546,7 @@ function App() {
                         Run
                       </button>
                       <button
-                        onClick={() => executeCode(true)}
+                        onClick={() => executeAllTestsAndAnalyze()}
                         disabled={isLoading}
                         className="px-4 py-1 rounded-md transition-colors duration-150"
                         style={{
@@ -580,7 +555,7 @@ function App() {
                           opacity: isLoading ? 0.7 : 1,
                         }}
                       >
-                        Submit
+                        Run All Tests & Analyze
                       </button>
                     </div>
                   </div>

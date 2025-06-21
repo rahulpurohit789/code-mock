@@ -8,7 +8,7 @@ const config = require('../config');
  */
 exports.executeCode = async (req, res) => {
   try {
-    const { code, language, testCases, isSubmission } = req.body;
+    const { code, language, testCases } = req.body;
     
     // Validate input
     if (!code || !language) {
@@ -107,14 +107,6 @@ exports.executeCode = async (req, res) => {
         testResults: testResults
       }
     };
-
-    // Add submission status for submission requests
-    if (isSubmission && testResults.length > 0) {
-      const allPassed = testResults.every(test => test.passed);
-      result.data.submissionStatus = allPassed ? 'Accepted' : 'Wrong Answer';
-      result.data.runtime = Math.floor(Math.random() * 100) + 1; // Mock runtime
-      result.data.memory = Math.floor(Math.random() * 50) + 10; // Mock memory usage
-    }
 
     res.json(result);
 
