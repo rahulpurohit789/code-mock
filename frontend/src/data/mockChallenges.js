@@ -16,25 +16,49 @@ Example 2:
 Input: nums = [3,2,4], target = 6
 Output: [1,2]`,
     starterCode: {
-      python: `def twoSum(nums, target):
-    # Write your code here
+      python: `def solution(nums, target):
+    """
+    Find two numbers in the array that add up to the target.
+    
+    Args:
+        nums: List of integers
+        target: Target sum to find
+        
+    Returns:
+        List of two indices whose values sum to target
+    """
+    # Your code here
     pass
 
 # Example usage:
 nums = [2, 7, 11, 15]
 target = 9
-print(twoSum(nums, target))`,
-      javascript: `function twoSum(nums, target) {
-    // Write your code here
+print(solution(nums, target))`,
+      javascript: `function solution(nums, target) {
+    /**
+     * Find two numbers in the array that add up to the target.
+     * 
+     * @param {number[]} nums - Array of integers
+     * @param {number} target - Target sum to find
+     * @return {number[]} Array of two indices whose values sum to target
+     */
+    // Your code here
 }
 
 // Example usage:
 const nums = [2, 7, 11, 15];
 const target = 9;
-console.log(twoSum(nums, target));`,
+console.log(solution(nums, target));`,
       java: `class Solution {
-    public int[] twoSum(int[] nums, int target) {
-        // Write your code here
+    /**
+     * Find two numbers in the array that add up to the target.
+     * 
+     * @param nums Array of integers
+     * @param target Target sum to find
+     * @return Array of two indices whose values sum to target
+     */
+    public int[] solution(int[] nums, int target) {
+        // Your code here
         return new int[]{};
     }
 
@@ -42,7 +66,7 @@ console.log(twoSum(nums, target));`,
         Solution solution = new Solution();
         int[] nums = {2, 7, 11, 15};
         int target = 9;
-        int[] result = solution.twoSum(nums, target);
+        int[] result = solution.solution(nums, target);
         System.out.println("[" + result[0] + "," + result[1] + "]");
     }
 }`,
@@ -51,8 +75,15 @@ console.log(twoSum(nums, target));`,
 
 class Solution {
 public:
-    std::vector<int> twoSum(std::vector<int>& nums, int target) {
-        // Write your code here
+    /**
+     * Find two numbers in the array that add up to the target.
+     * 
+     * @param nums Vector of integers
+     * @param target Target sum to find
+     * @return Vector of two indices whose values sum to target
+     */
+    std::vector<int> solution(std::vector<int>& nums, int target) {
+        // Your code here
         return {};
     }
 };
@@ -61,7 +92,7 @@ int main() {
     Solution solution;
     std::vector<int> nums = {2, 7, 11, 15};
     int target = 9;
-    std::vector<int> result = solution.twoSum(nums, target);
+    std::vector<int> result = solution.solution(nums, target);
     std::cout << "[" << result[0] << "," << result[1] << "]" << std::endl;
     return 0;
 }`
@@ -96,31 +127,51 @@ Example 2:
 Input: s = ["H","a","n","n","a","h"]
 Output: ["h","a","n","n","a","H"]`,
     starterCode: {
-      python: `def reverseString(s):
-    # Write your code here
+      python: `def solution(s):
+    """
+    Reverse the string in-place.
+    
+    Args:
+        s: List of characters to reverse
+        
+    Returns:
+        None (modifies the input list in-place)
+    """
+    # Your code here
     pass
 
 # Example usage:
 s = ["h","e","l","l","o"]
-reverseString(s)
+solution(s)
 print(s)`,
-      javascript: `function reverseString(s) {
-    // Write your code here
+      javascript: `function solution(s) {
+    /**
+     * Reverse the string in-place.
+     * 
+     * @param {character[]} s - Array of characters to reverse
+     * @return {void} Modifies the input array in-place
+     */
+    // Your code here
 }
 
 // Example usage:
 const s = ["h","e","l","l","o"];
-reverseString(s);
+solution(s);
 console.log(s);`,
       java: `class Solution {
-    public void reverseString(char[] s) {
-        // Write your code here
+    /**
+     * Reverse the string in-place.
+     * 
+     * @param s Array of characters to reverse
+     */
+    public void solution(char[] s) {
+        // Your code here
     }
 
     public static void main(String[] args) {
         Solution solution = new Solution();
         char[] s = {'h','e','l','l','o'};
-        solution.reverseString(s);
+        solution.solution(s);
         System.out.println(new String(s));
     }
 }`,
@@ -130,15 +181,20 @@ console.log(s);`,
 
 class Solution {
 public:
-    void reverseString(std::vector<char>& s) {
-        // Write your code here
+    /**
+     * Reverse the string in-place.
+     * 
+     * @param s Vector of characters to reverse
+     */
+    void solution(std::vector<char>& s) {
+        // Your code here
     }
 };
 
 int main() {
     Solution solution;
     std::vector<char> s = {'h','e','l','l','o'};
-    solution.reverseString(s);
+    solution.solution(s);
     for (char c : s) std::cout << c;
     std::cout << std::endl;
     return 0;

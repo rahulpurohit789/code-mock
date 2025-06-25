@@ -6,9 +6,8 @@ const ResizeWrapper = ({ children }) => {
   useEffect(() => {
     if (!wrapperRef.current) return;
 
-    // Create a ResizeObserver instance
     const resizeObserver = new ResizeObserver((entries) => {
-      // Use requestAnimationFrame to throttle updates
+
       window.requestAnimationFrame(() => {
         if (!Array.isArray(entries) || !entries.length) return;
       });

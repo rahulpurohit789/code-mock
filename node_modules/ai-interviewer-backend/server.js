@@ -4,6 +4,7 @@ const fetch = require('node-fetch');
 const dotenv = require('dotenv');
 const session = require('express-session');
 const { executeCode } = require('./src/controllers/codeController');
+const { dsaProblemsPool } = require('./questionsPool');
 
 dotenv.config();
 
@@ -87,7 +88,16 @@ app.post('/api/chat', async (req, res) => {
         introQuestionsAsked: 0,
         coreQuestionsAsked: 0,
         dsaGenerated: false,
-        usedTopics: [] // Track which topics have been covered
+        usedTopics: [], // Track which topics have been covered
+        // New fields for progressive DSA interview
+        dsaPhase: 'easy', // 'easy', 'complexity', 'optimization', 'medium_hard', 'feedback'
+        easyProblemSolved: false,
+        complexityAnalyzed: false,
+        optimizationDiscussed: false,
+        mediumHardProblemSolved: false,
+        currentProblem: null,
+        currentProblemCategory: null,
+        currentProblemType: null
       };
     }
     if (!req.session.conversationHistory) {
@@ -105,15 +115,25 @@ app.post('/api/chat', async (req, res) => {
     let fullPrompt = '';
     const baseSystemPrompt = `You are "Code Mock", a technical interviewer conducting a real interview. You must follow the interview flow and respond as the interviewer, not generate scripts or examples. You are having a conversation with a real candidate right now.
 
-IMPORTANT: You are the interviewer. Respond directly to the candidate. Do NOT create scripts, examples, or hypothetical conversations.`;
+IMPORTANT: You are the interviewer. Respond directly to the candidate. Do NOT create scripts, examples, or hypothetical conversations.
+
+CRITICAL: When presenting DSA problems, you MUST use the exact problem data provided to you in the prompt. Do NOT generate or create your own problems. Use the title, problem statement, and requirements exactly as provided.
+
+CRITICAL: Do NOT generate, create, or present any DSA problems unless explicitly instructed to do so with specific problem data. Only present problems when you are given the exact problem data to use.`;
 
     // Log current phase for debugging
     console.log('🔍 Current interview state:');
     console.log('  - Phase:', state.phase);
+    console.log('  - DSA Phase:', state.dsaPhase);
     console.log('  - Intro questions asked:', state.introQuestionsAsked);
     console.log('  - Core questions asked:', state.coreQuestionsAsked);
     console.log('  - Used topics:', state.usedTopics);
     console.log('  - DSA generated:', state.dsaGenerated);
+    console.log('  - Easy problem solved:', state.easyProblemSolved);
+    console.log('  - Complexity analyzed:', state.complexityAnalyzed);
+    console.log('  - Optimization discussed:', state.optimizationDiscussed);
+    console.log('  - Medium-hard problem solved:', state.mediumHardProblemSolved);
+    console.log('  - Current problem:', state.currentProblem?.title || 'None');
     console.log('  - User message:', message?.substring(0, 100) + '...');
     console.log('  - Message type:', type);
 
@@ -124,6 +144,19 @@ IMPORTANT: You are the interviewer. Respond directly to the candidate. Do NOT cr
       const allTestsPassed = results.testResults.every(r => r.passed);
       const passedTests = results.testResults.filter(r => r.passed).length;
       const totalTests = results.testResults.length;
+      
+      // Update interview state to move to complexity analysis phase
+      if (state.phase === 'dsa_progressive' && state.dsaPhase === 'easy') {
+        state.dsaPhase = 'complexity';
+        // Clear the current problem after analysis
+        state.currentProblem = null;
+        console.log('🔍 Transitioning from easy problem to complexity analysis phase');
+      } else if (state.phase === 'dsa_progressive' && state.dsaPhase === 'medium_hard') {
+        state.dsaPhase = 'feedback';
+        // Clear the current problem after analysis
+        state.currentProblem = null;
+        console.log('🔍 Transitioning from medium-hard problem to feedback phase');
+      }
       
       fullPrompt = `${baseSystemPrompt}
 
@@ -175,204 +208,498 @@ Analyze the candidate's code and ask them thoughtful questions about their solut
 
 Be encouraging but thorough. Ask 2-3 specific questions about their code and approach.`;
       
-    } else if (state.phase === 'introduction' && state.introQuestionsAsked === 0) {
-      console.log('🔍 Executing introduction phase - first question path');
-      // Introduction phase - first question
-      state.introQuestionsAsked = 1;
+    } else if (state.phase === 'introduction') {
+      console.log('🔍 Executing introduction phase');
+      
+      // Handle introduction phase
+      if (state.introQuestionsAsked === 0) {
+        // First introduction question
+        state.introQuestionsAsked = 1;
+        fullPrompt = `${baseSystemPrompt}
+
+You are starting the interview. The candidate just introduced themselves: "${message}"
+
+Acknowledge their introduction warmly and ask about their technical background and experience. Be conversational and genuinely interested in their background.
+
+Focus on:
+- Acknowledge their introduction with their actual name
+- Ask about their educational background
+- Ask about their technical experience and programming languages
+- Be warm and professional
+
+Generate a natural, conversational response. Do not use placeholder text like "[Candidate's Name]" - use their actual name.`;
+        
+      } else if (state.introQuestionsAsked === 1) {
+        // Second introduction question
+        state.introQuestionsAsked = 2;
+        fullPrompt = `${baseSystemPrompt}
+
+The candidate just answered about their background: "${message}"
+
+Acknowledge their background and ask about their most recent project or technical challenge. Be genuinely interested and ask follow-up questions.
+
+Focus on:
+- Acknowledge their background with specific details they mentioned
+- Ask about a recent project or technical challenge they've worked on
+- Ask about the project's purpose, technologies used, challenges faced, and what they learned
+- Be conversational and show genuine interest
+
+Generate a natural response that references specific details from their background.`;
+        
+      } else {
+        // Move to core topics phase
+        state.phase = 'core_topics';
+        state.introQuestionsAsked = 2;
+        fullPrompt = `${baseSystemPrompt}
+
+The candidate just discussed their project experience: "${message}"
+
+Acknowledge their project experience and transition smoothly to core computer science topics.
+
+Focus on:
+- Acknowledge their project experience with specific details they mentioned
+- Transition to core computer science concepts
+- Mention that you'll ask about fundamental topics like operating systems, object-oriented programming, databases, and computer networks
+- Be encouraging and professional
+
+Generate a natural transition that builds on their project experience.`;
+      }
+      
+    } else if (state.phase === 'core_topics') {
+      console.log('🔍 Executing core topics phase');
+      
+      // Handle core topics phase
+      if (state.coreQuestionsAsked === 0) {
+        // First core topic question
+        state.coreQuestionsAsked = 1;
+        
+        // Select a random topic that hasn't been used
+        const availableTopics = ['os', 'oops', 'dbms', 'cns'].filter(topic => !state.usedTopics.includes(topic));
+        const selectedTopic = availableTopics[Math.floor(Math.random() * availableTopics.length)];
+        const selectedQuestion = coreTopicQuestions[selectedTopic][Math.floor(Math.random() * coreTopicQuestions[selectedTopic].length)];
+        
+        state.usedTopics.push(selectedTopic);
+        
+        fullPrompt = `${baseSystemPrompt}
+
+The candidate just answered the first core topic question: "${message}"
+
+Acknowledge their answer and ask the second core topic question. Provide feedback on their response and gently correct any misconceptions.
+
+Focus on:
+- Acknowledge their answer with specific feedback
+- Gently correct any misconceptions if needed
+- Ask the next question: "${selectedQuestion}"
+- Be encouraging and supportive
+
+Generate a natural response that provides constructive feedback and smoothly transitions to the next question.`;
+        
+      } else if (state.coreQuestionsAsked === 1) {
+        // Second core topic question - transition to DSA
+        state.coreQuestionsAsked = 2;
+        state.phase = 'dsa_progressive';
+        
+        fullPrompt = `${baseSystemPrompt}
+
+The candidate just answered the second core topic question: "${message}"
+
+Acknowledge their answer and transition to the DSA coding challenges.
+
+Focus on:
+- Acknowledge their answer with specific feedback
+- Transition to coding challenges
+- Mention that you'll present algorithmic problems to test problem-solving skills
+- Ask if they're ready for their first coding challenge
+- Be encouraging and professional
+
+Generate a natural transition that builds on their core topic performance.`;
+        
+      } else {
+        // Should not reach here, but handle gracefully
+        state.phase = 'dsa_progressive';
+        fullPrompt = `${baseSystemPrompt}
+
+The candidate has completed the core topics phase. Their last response was: "${message}"
+
+Transition to the DSA coding challenges.
+
+Focus on:
+- Acknowledge their completion of core topics
+- Transition to coding challenges
+- Ask if they're ready for algorithmic problems
+- Be encouraging and professional
+
+Generate a natural transition to the coding phase.`;
+      }
+      
+    } else if (state.phase === 'dsa_progressive' && state.dsaPhase === 'easy' && !state.easyProblemSolved) {
+      console.log('🔍 Executing first DSA problem presentation');
+      // Present the first easy DSA problem
+      state.easyProblemSolved = true;
+      
+      // Select a random easy problem from the pool
+      const easyProblems = dsaProblemsPool.filter(problem => problem.difficulty === 'easy');
+      const selectedProblem = easyProblems[Math.floor(Math.random() * easyProblems.length)];
+      
+      state.currentProblem = selectedProblem;
+      state.currentProblemCategory = 'easy';
+      state.currentProblemType = 'easy';
       
       fullPrompt = `${baseSystemPrompt}
 
-RESPOND AS THE INTERVIEWER NOW. The candidate said: "${message}"
+The candidate is ready for their first coding challenge. Their response is: "${message}"
 
-You are Code Mock, the interviewer. Introduce yourself and ask them about their technical background. Do NOT generate scripts, examples, or hypothetical conversations. Respond directly as the interviewer speaking to this candidate.
+IMPORTANT: Use the EXACT problem data provided below. Do NOT generate or create your own problem.
 
-Say something like: "Hello there! I'm Code Mock, and I'll be your technical interviewer today. I'm really excited to get to know you and explore your technical skills together! To get started, could you please introduce yourself and tell me about your technical background?"`;
+Present the first easy DSA problem to them. Be encouraging and supportive.
+
+PROBLEM DATA TO USE:
+- Title: "${selectedProblem.title}"
+- Problem Statement: "${selectedProblem.problem}"
+- Requirements: ${selectedProblem.requirements.map(req => `- ${req}`).join('\n')}
+
+Focus on:
+- Acknowledge their readiness
+- Present the problem using the EXACT title and problem statement above
+- List the requirements exactly as provided above
+- Encourage them to take their time and walk through their approach
+- Be supportive and encouraging
+
+Generate a natural response that presents the problem clearly and encouragingly using ONLY the provided problem data.`;
       
-    } else if (state.phase === 'introduction' && state.introQuestionsAsked === 1) {
-      console.log('🔍 Executing introduction phase - second question path');
-      // Introduction phase - second question
-      state.introQuestionsAsked = 2;
+    } else if (state.phase === 'dsa_progressive' && state.dsaPhase === 'easy' && state.easyProblemSolved && !state.currentProblem) {
+      console.log('🔍 Executing first DSA problem presentation');
+      // Present the first easy DSA problem (when transitioning from core topics)
       
-      fullPrompt = `${baseSystemPrompt}
-
-The candidate just answered your first introduction question: "${message}"
-
-Acknowledge their response warmly and ask your second introduction question about their projects and experience.
-
-Ask them to tell you about a recent project they're particularly proud of, including:
-- What the project was about and what problem it solved
-- What technologies and tools they used
-- Their specific role and contributions
-- Any interesting challenges they faced and how they overcame them
-
-Show genuine interest in their project experience.`;
+      // Select a random easy problem from the pool
+      const easyProblems = dsaProblemsPool.filter(problem => problem.difficulty === 'easy');
+      const selectedProblem = easyProblems[Math.floor(Math.random() * easyProblems.length)];
       
-    } else if (state.phase === 'introduction' && state.introQuestionsAsked === 2) {
-      console.log('🔍 Executing transition to core topics path');
-      // After second introduction question, move to core topics
-      state.phase = 'core_topics';
-      state.coreQuestionsAsked = 1;
-      
-      // Select first core topic
-      const firstTopic = ['os', 'oops', 'dbms', 'cns'][Math.floor(Math.random() * 4)];
-      state.usedTopics.push(firstTopic);
-      const questions = coreTopicQuestions[firstTopic];
-      const selectedQuestion = questions[Math.floor(Math.random() * questions.length)];
+      state.currentProblem = selectedProblem;
+      state.currentProblemCategory = 'easy';
+      state.currentProblemType = 'easy';
       
       fullPrompt = `${baseSystemPrompt}
 
-The candidate just answered your second introduction question: "${message}"
+The candidate is ready for their first coding challenge. Their response is: "${message}"
 
-Acknowledge their project experience warmly, then transition to technical core topics. Ask your first core CS question.
+IMPORTANT: Use the EXACT problem data provided below. Do NOT generate or create your own problem.
 
-Example response format:
-"That sounds like a really interesting project! I can see you've got hands-on experience applying your technical skills.
+Present the first easy DSA problem to them. Be encouraging and supportive.
 
-Now let's dive into some core computer science concepts. These help me understand your foundational knowledge.
+PROBLEM DATA TO USE:
+- Title: "${selectedProblem.title}"
+- Problem Statement: "${selectedProblem.problem}"
+- Requirements: ${selectedProblem.requirements.map(req => `- ${req}`).join('\n')}
 
-${selectedQuestion}
+Focus on:
+- Acknowledge their readiness
+- Present the problem using the EXACT title and problem statement above
+- List the requirements exactly as provided above
+- Encourage them to take their time and walk through their approach
+- Be supportive and encouraging
 
-Take your time to think through this - I'm looking for both your theoretical understanding and any practical insights you might have."
-
-Be encouraging and show genuine interest in their technical knowledge.`;
+Generate a natural response that presents the problem clearly and encouragingly using ONLY the provided problem data.`;
       
-    } else if (state.phase === 'core_topics' && state.coreQuestionsAsked === 1) {
-      console.log('🔍 Executing core topics - second question path');
-      // Second core topic question
-      state.coreQuestionsAsked = 2;
-      
-      // Select second core topic (different from first)
-      const availableTopics = ['os', 'oops', 'dbms', 'cns'].filter(topic => !state.usedTopics.includes(topic));
-      const secondTopic = availableTopics[Math.floor(Math.random() * availableTopics.length)];
-      state.usedTopics.push(secondTopic);
-      
-      const questions = coreTopicQuestions[secondTopic];
-      const selectedQuestion = questions[Math.floor(Math.random() * questions.length)];
+    } else if (state.phase === 'dsa_progressive' && state.dsaPhase === 'easy' && state.easyProblemSolved && state.currentProblem) {
+      console.log('🔍 User is working on the first DSA problem');
+      // User is working on the first problem - provide guidance and encouragement
       
       fullPrompt = `${baseSystemPrompt}
 
-The candidate just answered your first core topic question: "${message}"
+The candidate is working on the first DSA problem: "${message}"
 
-First, provide brief feedback on their answer (be encouraging but honest). If they made mistakes, gently correct them. Then ask your second core topic question from a different area.
+Provide guidance and encouragement while they work on the problem. Ask them about their approach and help them think through the solution.
 
-Example response format:
-"[Brief feedback on their answer - correct any mistakes gently]
+IMPORTANT: Do NOT generate or present any new problems. Only provide guidance on the current problem.
 
-That's a solid understanding! Let me ask you about a different area now.
+Focus on:
+- Acknowledge their progress and approach
+- Ask about their thought process and strategy
+- Provide gentle hints if they seem stuck (without giving away the solution)
+- Encourage them to think about data structures, time complexity, and edge cases
+- Be supportive and helpful
+- Do NOT present any new problems or problem statements
 
-${selectedQuestion}
-
-Take your time to think through this - I'm looking for both theoretical understanding and practical insights."
-
-Be encouraging but thorough in your feedback.`;
+Generate a natural response that guides them without providing the solution. Do NOT generate any new problems.`;
       
-    } else if (state.phase === 'core_topics' && state.coreQuestionsAsked === 2) {
-      console.log('🔍 Executing DSA problem generation path');
-      // After second core question, move to DSA problem generation by AI
-      state.phase = 'dsa_problem';
-      state.dsaProblemsSolved = 0; // Initialize problem solved counter
-      
-      fullPrompt = `You are a senior software engineer creating a new coding problem for a technical interview.
-
-CRITICAL: You MUST respond with ONLY a valid JSON object. No other text, no explanations, no markdown formatting.
-
-Generate a complete, brand-new, easy-to-medium difficulty data structures and algorithms (DSA) problem.
-
-REQUIRED JSON STRUCTURE (respond with ONLY this JSON, nothing else):
-{
-  "title": "A creative and short problem title",
-  "story": "A short, engaging story to set the scene for the problem.",
-  "problem": "A clear and concise statement of the task.",
-  "requirements": [
-    "A list of requirements, like input/output formats and constraints."
-  ],
-  "testCases": [
-    { "input": "...", "output": "...", "explanation": "..." },
-    { "input": "...", "output": "...", "explanation": "..." },
-    { "input": "...", "output": "...", "explanation": "..." }
-  ],
-  "hiddenTestCases": [
-    { "input": "...", "output": "..." },
-    { "input": "...", "output": "..." },
-    { "input": "...", "output": "..." },
-    { "input": "...", "output": "..." },
-    { "input": "...", "output": "..." }
-  ],
-  "skeletonCode": {
-    "python": "def solution(input_data):\\n    # Your code here\\n    pass",
-    "javascript": "function solution(input_data) {\\n    // Your code here\\n}",
-    "java": "class Solution {\\n    public Object solution(Object input_data) {\\n        // Your code here\\n        return null;\\n    }\\n}",
-    "cpp": "class Solution {\\npublic:\\n    auto solution(auto input_data) {\\n        // Your code here\\n        return {};\\n    }\\n};"
-  }
-}
-
-CRITICAL RULES FOR TEST CASES:
-- Input and output must be valid JSON strings that can be parsed by JSON.parse()
-- For array inputs, use format: "[1,2,3]" (with quotes)
-- For string inputs, use format: "hello" (with quotes)
-- For number inputs, use format: 42 (without quotes)
-- For boolean inputs, use format: true or false (without quotes)
-- For object inputs, use format: "{\\"key\\":\\"value\\"}" (with escaped quotes)
-- NEVER use single quotes, only double quotes
-- Ensure input format matches what the solution function expects
-- Test cases should cover edge cases and normal cases
-- All test cases must be consistent in their input/output format
-
-EXAMPLE CORRECT TEST CASES:
-- Array problem: {"input": "[1,2,3]", "output": "6", "explanation": "Sum of array elements"}
-- String problem: {"input": "\\"hello\\"", "output": "5", "explanation": "Length of string"}
-- Number problem: {"input": 42, "output": 84, "explanation": "Double the number"}
-
-RULES:
-- Respond with ONLY the JSON object above, starting with { and ending with }
-- Do NOT include any markdown formatting, code blocks, or explanatory text
-- The main function in skeleton code for ALL languages MUST be named 'solution'
-- All input/output values in test cases must be valid JSON strings
-- The problem should be solvable with fundamental DSA concepts
-- NO CONVERSATION, NO EXPLANATIONS - ONLY THE JSON OBJECT`;
-      
-      // We are now generating a problem, not presenting a pre-made one.
-      // The flag will be used by the frontend to know to parse the DSA problem.
-      req.session.includeDSAProblem = true;
-      
-    } else if (state.phase === 'dsa_problem' && !state.dsaGenerated) {
-      console.log('🔍 Executing DSA problem - waiting for approach path');
-      // Mark DSA as generated and wait for solution
-      state.dsaGenerated = true;
+    } else if (state.phase === 'dsa_progressive' && state.dsaPhase === 'easy' && state.easyProblemSolved && !state.currentProblem && message.toLowerCase().includes('yes')) {
+      console.log('🔍 User said yes to first problem - transitioning to complexity analysis');
+      // User said yes to the first problem, transition to complexity analysis
+      state.dsaPhase = 'complexity';
       
       fullPrompt = `${baseSystemPrompt}
 
-The candidate has just been presented with the DSA problem. Now, you must act as the interviewer waiting for their approach. The candidate's first response is: "${message}"
+The candidate said "yes" to the first problem. Their response is: "${message}"
+
+Transition to complexity analysis phase. Ask them about their solution's time and space complexity.
+
+Focus on:
+- Acknowledge their readiness to proceed
+- Ask about their algorithm's time complexity
+- Ask about their algorithm's space complexity
+- Ask if they can think of any optimizations
+- Be encouraging and supportive
+
+Generate a natural response that transitions to complexity analysis.`;
+      
+    } else if (state.phase === 'dsa_progressive' && state.dsaPhase === 'complexity' && !state.complexityAnalyzed) {
+      console.log('🔍 Executing complexity analysis - waiting for response path');
+      // Mark complexity as analyzed and wait for response
+      state.complexityAnalyzed = true;
+      
+      fullPrompt = `${baseSystemPrompt}
+
+The candidate is analyzing the complexity of their solution. Their response is: "${message}"
+
+Provide feedback on their complexity analysis and then ask about optimization opportunities.
+
+IMPORTANT: Do NOT generate or present any new problems. Only provide feedback on their complexity analysis and ask about optimization opportunities.
+
+Focus on:
+- Provide feedback on their complexity analysis
+- Gently correct any mistakes if needed
+- Ask about optimization opportunities
+- Encourage them to think about time complexity, space complexity, edge cases, and alternative approaches
+- Be encouraging and constructive
+- Do NOT present any new problems or problem statements
+
+Generate a natural response that provides helpful feedback and guides them toward optimization thinking. Do NOT generate any problems.`;
+      
+    } else if (state.phase === 'dsa_progressive' && state.dsaPhase === 'complexity' && state.complexityAnalyzed) {
+      console.log('🔍 Executing optimization discussion path');
+      // After complexity analysis, move to optimization discussion
+      state.dsaPhase = 'optimization';
+      
+      fullPrompt = `${baseSystemPrompt}
+
+The candidate just discussed optimization strategies: "${message}"
+
+Acknowledge their optimization thinking and then transition to a more challenging problem.
+
+IMPORTANT: Do NOT generate or present any problems yet. Only acknowledge their optimization discussion and ask if they're ready for the next challenge.
+
+Focus on:
+- Acknowledge their optimization ideas with specific feedback
+- Transition to a more challenging problem phase
+- Ask if they're ready for the next challenge
+- Be encouraging and prepare them for increased difficulty
+- Do NOT present any specific problems or problem statements
+
+Generate a natural response that acknowledges their progress and asks if they're ready for the next challenge. Do NOT generate any problems.`;
+      
+    } else if (state.phase === 'dsa_progressive' && state.dsaPhase === 'optimization' && !state.optimizationDiscussed) {
+      console.log('🔍 Executing optimization - waiting for response path');
+      // Mark optimization as discussed and wait for response
+      state.optimizationDiscussed = true;
+      
+      fullPrompt = `${baseSystemPrompt}
+
+The candidate is responding to the optimization discussion. Their response is: "${message}"
+
+Acknowledge their readiness and present the medium-hard problem.
+
+IMPORTANT: Do NOT generate or create your own problem. Wait for the next phase to present the problem from the pool.
+
+Focus on:
+- Acknowledge their response and readiness
+- Prepare to present the medium-hard problem
+- Be encouraging and supportive
+- Do NOT present any problem statements or examples
+
+Generate a natural response that acknowledges their readiness. Do NOT present any problems.`;
+      
+    } else if (state.phase === 'dsa_progressive' && state.dsaPhase === 'optimization' && state.optimizationDiscussed) {
+      console.log('🔍 Executing medium-hard problem generation path');
+      // Generate medium-hard problem
+      state.dsaPhase = 'medium_hard';
+      
+      // Select medium or hard problem from the pool
+      const mediumHardProblems = dsaProblemsPool.filter(problem => 
+        problem.difficulty === 'medium' || problem.difficulty === 'hard'
+      );
+      
+      // Select a random medium-hard problem
+      const selectedProblem = mediumHardProblems[Math.floor(Math.random() * mediumHardProblems.length)];
+      
+      state.currentProblem = selectedProblem;
+      state.currentProblemCategory = 'medium_hard';
+      state.currentProblemType = 'medium_hard';
+      
+      fullPrompt = `${baseSystemPrompt}
+
+The candidate is ready for the medium-hard problem. Their response is: "${message}"
+
+IMPORTANT: Use the EXACT problem data provided below. Do NOT generate or create your own problem.
+
+Present the medium-hard problem to them.
+
+PROBLEM DATA TO USE:
+- Title: "${selectedProblem.title}"
+- Problem Statement: "${selectedProblem.problem}"
+- Requirements: ${selectedProblem.requirements.map(req => `- ${req}`).join('\n')}
+
+Focus on:
+- Acknowledge their readiness
+- Present the problem using the EXACT title and problem statement above
+- List the requirements exactly as provided above
+- Mention that this involves advanced algorithmic thinking and may require dynamic programming, two pointers, or other advanced techniques
+- Encourage them to take their time and walk through their approach
+- Be encouraging but emphasize the increased complexity
+
+Generate a natural response that presents the problem clearly and prepares them for the challenge using ONLY the provided problem data.`;
+      
+    } else if (state.phase === 'dsa_progressive' && state.dsaPhase === 'medium_hard' && !state.mediumHardProblemSolved) {
+      console.log('🔍 Executing medium-hard problem - waiting for solution path');
+      // Mark medium-hard problem as solved and wait for solution
+      state.mediumHardProblemSolved = true;
+      
+      fullPrompt = `${baseSystemPrompt}
+
+The candidate has just been presented with the medium-hard DSA problem. Now, you must act as the interviewer waiting for their approach. The candidate's first response is: "${message}"
 
 Your ONLY job right now is to ask them to explain their approach. Do NOT provide any hints, solutions, or code.
 
-Acknowledge their readiness and ask them something like:
-"Great. Before you start writing code, could you please walk me through your thought process? How are you planning to tackle this problem?"
+Focus on:
+- Acknowledge their readiness
+- Ask them to walk through their thought process
+- Ask how they plan to approach this ${state.currentProblemCategory} problem
+- Wait for them to explain their approach
+- Do not provide hints or solutions
 
-Wait for them to explain their approach. Do not say anything else.`;
+Generate a natural response that asks for their approach without giving away the solution.`;
       
-    } else {
-      console.log('🔍 Executing fallback/wrap-up path');
-      // Handle final discussion and wrap up
+    } else if (state.phase === 'dsa_progressive' && state.dsaPhase === 'medium_hard' && !state.mediumHardProblemSolved && state.currentProblem && message.toLowerCase().includes('yes')) {
+      console.log('🔍 User said yes to medium-hard problem - asking for approach');
+      // User said yes to the medium-hard problem, ask for their approach
+      
       fullPrompt = `${baseSystemPrompt}
 
-This is the final part of the interview. The candidate provided: "${message}"
+The candidate said "yes" to the medium-hard problem. Their response is: "${message}"
 
-Provide comprehensive feedback on their overall interview performance. Address:
-- Strengths you observed across all topics covered
-- Areas for improvement (be constructive and specific)
-- Their problem-solving approach
-- Technical knowledge demonstrated
-- Communication skills
+Ask them to explain their approach to the problem.
 
-Then wrap up the interview professionally with encouragement for their future endeavors.
+Focus on:
+- Acknowledge their readiness
+- Ask them to walk through their thought process
+- Ask how they plan to approach this ${state.currentProblemCategory} problem
+- Wait for them to explain their approach
+- Do not provide hints or solutions
 
-Example format:
-"[Comprehensive feedback on their performance]
+Generate a natural response that asks for their approach without giving away the solution.`;
+      
+    } else if (state.phase === 'dsa_progressive' && state.dsaPhase === 'medium_hard' && state.mediumHardProblemSolved) {
+      console.log('🔍 Executing final feedback and wrap-up path');
+      // After medium-hard problem, move to final feedback
+      state.dsaPhase = 'feedback';
+      
+      fullPrompt = `${baseSystemPrompt}
 
-Thank you for a great technical discussion! You've shown [specific strengths]. Keep working on [specific areas for improvement]. Best of luck with your job search, and keep coding!"
+The candidate just provided their solution to the medium-hard problem: "${message}"
 
-Be warm, professional, and encouraging in your closing.`;
+This is the final part of the interview. Provide comprehensive feedback on their overall interview performance.
+
+Focus on:
+- Thank them for completing the interview
+- Provide specific feedback on their strengths
+- Mention areas for improvement constructively
+- Give an overall assessment
+- Provide specific recommendations
+- Be warm, professional, and constructive
+
+Generate a comprehensive feedback response that is helpful and encouraging.`;
+      
+    } else if (state.phase === 'dsa_progressive' && state.dsaPhase === 'feedback') {
+      console.log('🔍 Executing final wrap-up path');
+      // Final wrap-up - mark interview as complete
+      state.phase = 'complete';
+      state.dsaPhase = 'complete';
+      
+      fullPrompt = `${baseSystemPrompt}
+
+The candidate has received comprehensive feedback. Their response is: "${message}"
+
+This is the FINAL response of the interview. Provide a conclusive wrap-up and end the interview.
+
+Focus on:
+- Thank them for their response
+- Conclude the interview professionally
+- Encourage them to keep learning and practicing
+- Wish them well in their career journey
+- End on a positive and encouraging note
+- Make it clear that the interview is now complete
+
+Generate a natural wrap-up response that concludes the interview professionally and indicates the interview is over.`;
+      
+    } else if (state.phase === 'complete') {
+      console.log('🔍 Interview already completed');
+      // Interview is already complete
+      fullPrompt = `${baseSystemPrompt}
+
+The interview has already been completed. The candidate's response is: "${message}"
+
+Provide a brief acknowledgment that the interview is complete.
+
+Focus on:
+- Acknowledge that the interview is complete
+- Thank them for their time
+- Wish them well
+- Keep the response brief and professional
+
+Generate a brief response acknowledging the interview completion.`;
+    } else if (state.phase === 'dsa_progressive' && state.dsaPhase === 'medium_hard' && !state.mediumHardProblemSolved && state.currentProblem) {
+      console.log('🔍 User is working on the medium-hard DSA problem');
+      // User is working on the medium-hard problem - provide guidance and encouragement
+      
+      fullPrompt = `${baseSystemPrompt}
+
+The candidate is working on the medium-hard DSA problem: "${message}"
+
+Provide guidance and encouragement while they work on the problem. Ask them about their approach and help them think through the solution.
+
+Focus on:
+- Acknowledge their progress and approach
+- Ask about their thought process and strategy for this ${state.currentProblemCategory} problem
+- Provide gentle hints if they seem stuck (without giving away the solution)
+- Encourage them to think about data structures, time complexity, edge cases, and breaking down the problem
+- Be supportive and helpful
+
+Generate a natural response that guides them without providing the solution.`;
+    }
+
+    // Fallback case for unhandled states
+    if (!fullPrompt) {
+      console.log('⚠️ No specific condition matched, using fallback response');
+      console.log('⚠️ Current state details for debugging:');
+      console.log('  - Phase:', state.phase);
+      console.log('  - DSA Phase:', state.dsaPhase);
+      console.log('  - Easy problem solved:', state.easyProblemSolved);
+      console.log('  - Complexity analyzed:', state.complexityAnalyzed);
+      console.log('  - Optimization discussed:', state.optimizationDiscussed);
+      console.log('  - Medium-hard problem solved:', state.mediumHardProblemSolved);
+      console.log('  - Current problem:', state.currentProblem?.title || 'None');
+      
+      fullPrompt = `${baseSystemPrompt}
+
+The candidate's response is: "${message}"
+
+You are in an interview state that wasn't specifically handled. 
+
+IMPORTANT: Do NOT generate or present any new DSA problems. Only ask follow-up questions or provide guidance on the current problem.
+
+Current interview state:
+- Phase: ${state.phase}
+- DSA Phase: ${state.dsaPhase || 'N/A'}
+- Current Problem: ${state.currentProblem?.title || 'None'}
+
+Provide a helpful response that moves the interview forward without presenting new problems.
+
+Example response format:
+"I appreciate your response. Let me ask you a follow-up question to better understand your thinking.
+
+[Ask a relevant follow-up question based on the current interview phase]"
+
+Be helpful and move the conversation forward. Do NOT present new problems.`;
     }
 
     // Update session state
@@ -411,286 +738,8 @@ Be warm, professional, and encouraging in your closing.`;
     console.log('Response data keys:', Object.keys(data));
     console.log('Response length:', data.response?.length || 0);
     
-    // If we were expecting a DSA problem, parse it from the response
-    if (req.session.includeDSAProblem) {
-      const rawResponse = data.response;
-      console.log('🔍 Raw AI response for DSA problem generation:');
-      console.log('Raw response length:', rawResponse.length);
-      console.log('Raw response (first 500 chars):', rawResponse.substring(0, 500));
-      console.log('Raw response (last 500 chars):', rawResponse.substring(Math.max(0, rawResponse.length - 500)));
-      
-      // Try multiple parsing strategies
-      let jsonContent = null;
-      
-      // Strategy 1: Look for JSON in markdown code blocks
-      const jsonMatch = rawResponse.match(/```json\s*([\s\S]*?)\s*```/);
-      if (jsonMatch && jsonMatch[1]) {
-        jsonContent = jsonMatch[1].trim();
-        console.log('✅ Found JSON in markdown code block');
-      } else {
-        // Strategy 2: Look for any code block
-        const altMatch = rawResponse.match(/```\s*([\s\S]*?)\s*```/);
-        if (altMatch && altMatch[1]) {
-          console.log('🔍 Trying alternative JSON pattern (without "json" identifier)');
-          jsonContent = altMatch[1].trim();
-        } else {
-          // Strategy 3: Look for JSON-like content without markdown blocks
-          const jsonLikeMatch = rawResponse.match(/\{\s*"title"\s*:/);
-          if (jsonLikeMatch) {
-            console.log('🔍 Found JSON-like content without markdown blocks');
-            const startIndex = rawResponse.indexOf('{');
-            const endIndex = rawResponse.lastIndexOf('}');
-            if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
-              jsonContent = rawResponse.substring(startIndex, endIndex + 1);
-            }
-          } else {
-            // Strategy 4: Try to find any JSON object in the response
-            const anyJsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-            if (anyJsonMatch) {
-              console.log('🔍 Found potential JSON object in response');
-              jsonContent = anyJsonMatch[0];
-            }
-          }
-        }
-      }
-      
-      if (jsonContent) {
-        console.log('🔍 Extracted JSON content:');
-        console.log('JSON content length:', jsonContent.length);
-        console.log('JSON content (first 500 chars):', jsonContent.substring(0, 500));
-        console.log('JSON content (last 500 chars):', jsonContent.substring(Math.max(0, jsonContent.length - 500)));
-        
-        // --- JSON Repair Step ---
-        function repairJsonString(str) {
-          let fixed = str;
-          // Replace single quotes with double quotes
-          fixed = fixed.replace(/'/g, '"');
-          // Remove trailing commas before } or ]
-          fixed = fixed.replace(/,\s*([}\]])/g, '$1');
-          
-          // Enhanced test case validation and repair
-          // Fix input format issues
-          fixed = fixed.replace(/"input"\s*:\s*([^\[\"{][^,}]*)/g, function(match, p1) {
-            const trimmed = p1.trim();
-            // If it's a number, keep it as is
-            if (!isNaN(trimmed) && trimmed !== '') {
-              return `"input": ${trimmed}`;
-            }
-            // If it's a boolean, keep it as is
-            if (trimmed === 'true' || trimmed === 'false') {
-              return `"input": ${trimmed}`;
-            }
-            // If it's not starting with [ or " or {, wrap in quotes
-            if (!trimmed.startsWith('[') && !trimmed.startsWith('"') && !trimmed.startsWith('{')) {
-              return `"input": "${trimmed.replace(/"/g, '')}"`;
-            }
-            return match;
-          });
-          
-          // Fix output format issues
-          fixed = fixed.replace(/"output"\s*:\s*([^\[\"{][^,}]*)/g, function(match, p1) {
-            const trimmed = p1.trim();
-            // If it's a number, keep it as is
-            if (!isNaN(trimmed) && trimmed !== '') {
-              return `"output": ${trimmed}`;
-            }
-            // If it's a boolean, keep it as is
-            if (trimmed === 'true' || trimmed === 'false') {
-              return `"output": ${trimmed}`;
-            }
-            // If it's not starting with [ or " or {, wrap in quotes
-            if (!trimmed.startsWith('[') && !trimmed.startsWith('"') && !trimmed.startsWith('{')) {
-              return `"output": "${trimmed.replace(/"/g, '')}"`;
-            }
-            return match;
-          });
-          
-          // Validate and fix array inputs that might be missing quotes
-          fixed = fixed.replace(/"input"\s*:\s*\[([^\]]+)\]/g, function(match, content) {
-            // If the array content doesn't look like it's properly quoted, fix it
-            if (!content.includes('"') && content.includes(',')) {
-              const items = content.split(',').map(item => {
-                const trimmed = item.trim();
-                if (!isNaN(trimmed)) {
-                  return trimmed; // Keep numbers as is
-                }
-                return `"${trimmed}"`; // Quote strings
-              });
-              return `"input": [${items.join(',')}]`;
-            }
-            return match;
-          });
-          
-          return fixed;
-        }
-        // --- End JSON Repair Step ---
-        
-        let dsaProblem = null;
-        let parseError = null;
-        try {
-          dsaProblem = JSON.parse(jsonContent);
-        } catch (e) {
-          // Try to repair and parse again
-          try {
-            const repaired = repairJsonString(jsonContent);
-            dsaProblem = JSON.parse(repaired);
-            console.warn('⚠️ JSON was repaired before parsing.');
-          } catch (e2) {
-            parseError = e2;
-          }
-        }
-        if (dsaProblem) {
-          console.log('✅ Successfully parsed DSA problem JSON:');
-          console.log('Problem title:', dsaProblem.title);
-          console.log('Test cases count:', dsaProblem.testCases?.length || 0);
-          console.log('Hidden test cases count:', dsaProblem.hiddenTestCases?.length || 0);
-          console.log('Skeleton code languages:', Object.keys(dsaProblem.skeletonCode || {}));
-          
-          // Validate and fix test cases
-          const validateAndFixTestCases = (testCases) => {
-            if (!testCases || !Array.isArray(testCases)) return [];
-            
-            return testCases.map((testCase, index) => {
-              const fixed = { ...testCase };
-              
-              // Ensure input is properly formatted
-              if (typeof fixed.input === 'string') {
-                try {
-                  // Try to parse as JSON to validate
-                  JSON.parse(fixed.input);
-                } catch (e) {
-                  // If it's a number, convert to number format
-                  if (!isNaN(fixed.input) && fixed.input !== '') {
-                    fixed.input = parseFloat(fixed.input);
-                  } else if (fixed.input === 'true' || fixed.input === 'false') {
-                    fixed.input = fixed.input === 'true';
-                  } else {
-                    // If it's not a valid JSON string, wrap it in quotes
-                    fixed.input = `"${fixed.input.replace(/"/g, '')}"`;
-                  }
-                }
-              }
-              
-              // Ensure output is properly formatted
-              if (typeof fixed.output === 'string') {
-                try {
-                  // Try to parse as JSON to validate
-                  JSON.parse(fixed.output);
-                } catch (e) {
-                  // If it's a number, convert to number format
-                  if (!isNaN(fixed.output) && fixed.output !== '') {
-                    fixed.output = parseFloat(fixed.output);
-                  } else if (fixed.output === 'true' || fixed.output === 'false') {
-                    fixed.output = fixed.output === 'true';
-                  } else {
-                    // If it's not a valid JSON string, wrap it in quotes
-                    fixed.output = `"${fixed.output.replace(/"/g, '')}"`;
-                  }
-                }
-              }
-              
-              console.log(`Test case ${index + 1}: input=${JSON.stringify(fixed.input)}, output=${JSON.stringify(fixed.output)}`);
-              return fixed;
-            });
-          };
-          
-          // Fix test cases
-          dsaProblem.testCases = validateAndFixTestCases(dsaProblem.testCases);
-          dsaProblem.hiddenTestCases = validateAndFixTestCases(dsaProblem.hiddenTestCases);
-          
-          // Validate the parsed problem has required fields
-          if (!dsaProblem.title || !dsaProblem.problem || !dsaProblem.testCases || !dsaProblem.skeletonCode) {
-            throw new Error('Generated problem is missing required fields');
-          }
-          req.session.selectedDSAProblem = dsaProblem;
-          state.dsaGenerated = true;
-          req.session.interviewState = state;
-          req.session.includeDSAProblem = false; // Reset flag
-          const interviewerMessage = "Excellent! You've shown a good grasp of the core concepts. Now, let's move on to a coding challenge. The problem details should be visible on your screen. Please take a moment to read it, and then walk me through your approach before you start coding.";
-          history.push({ role: 'interviewer', content: interviewerMessage });
-          req.session.conversationHistory = history;
-          return res.json({ dsaProblem, response: interviewerMessage, phase: state.phase });
-        } else {
-          // Fallback DSA problem if repair also fails
-          console.error('❌ JSON parsing failed after repair:', parseError);
-          const fallbackDSA = {
-            title: "Sum of Array Elements",
-            story: "You are given an array of integers. Your task is to find the sum of all the elements in the array.",
-            problem: "Given an array of integers, return the sum of its elements.",
-            requirements: [
-              "Input: An array of integers (length 1-1000, values -10^6 to 10^6)",
-              "Output: An integer representing the sum of the array elements."
-            ],
-            testCases: [
-              { input: "[1,2,3,4,5]", output: "15", explanation: "1+2+3+4+5=15" },
-              { input: "[0,0,0]", output: "0", explanation: "All elements are zero." },
-              { input: "[-1,1,-1,1]", output: "0", explanation: "Sum of positives and negatives is zero." }
-            ],
-            hiddenTestCases: [
-              { input: "[100,200,300]", output: "600" },
-              { input: "[42]", output: "42" },
-              { input: "[-1000,1000]", output: "0" },
-              { input: "[1,2,3,4,5,6,7,8,9,10]", output: "55" },
-              { input: "[999999,-999999]", output: "0" }
-            ],
-            skeletonCode: {
-              python: "def solution(input_data):\n    # Your code here\n    pass",
-              javascript: "function solution(input_data) {\n    // Your code here\n}",
-              java: "class Solution {\n    public Object solution(Object input_data) {\n        // Your code here\n        return null;\n    }\n}",
-              cpp: "class Solution {\npublic:\n    auto solution(auto input_data) {\n        // Your code here\n        return {};\n    }\n};"
-            }
-          };
-          req.session.selectedDSAProblem = fallbackDSA;
-          state.dsaGenerated = true;
-          req.session.interviewState = state;
-          req.session.includeDSAProblem = false;
-          const interviewerMessage = "The AI failed to generate a new problem, so here is a fallback problem. Please solve it as you would in a real interview.";
-          history.push({ role: 'interviewer', content: interviewerMessage });
-          req.session.conversationHistory = history;
-          return res.json({ dsaProblem: fallbackDSA, response: interviewerMessage, phase: state.phase });
-        }
-      } else {
-        console.error("❌ AI did not return a valid JSON block for the DSA problem.");
-        console.error("❌ Full raw response:", rawResponse);
-        console.error("❌ JSON regex patterns tried: /```json\\s*([\\s\\S]*?)\\s*```/, /```\\s*([\\s\\S]*?)\\s*```/, and JSON-like content search");
-        // Fallback DSA problem
-        const fallbackDSA = {
-          title: "Sum of Array Elements",
-          story: "You are given an array of integers. Your task is to find the sum of all the elements in the array.",
-          problem: "Given an array of integers, return the sum of its elements.",
-          requirements: [
-            "Input: An array of integers (length 1-1000, values -10^6 to 10^6)",
-            "Output: An integer representing the sum of the array elements."
-          ],
-          testCases: [
-            { input: "[1,2,3,4,5]", output: "15", explanation: "1+2+3+4+5=15" },
-            { input: "[0,0,0]", output: "0", explanation: "All elements are zero." },
-            { input: "[-1,1,-1,1]", output: "0", explanation: "Sum of positives and negatives is zero." }
-          ],
-          hiddenTestCases: [
-            { input: "[100,200,300]", output: "600" },
-            { input: "[42]", output: "42" },
-            { input: "[-1000,1000]", output: "0" },
-            { input: "[1,2,3,4,5,6,7,8,9,10]", output: "55" },
-            { input: "[999999,-999999]", output: "0" }
-          ],
-          skeletonCode: {
-            python: "def solution(input_data):\n    # Your code here\n    pass",
-            javascript: "function solution(input_data) {\n    // Your code here\n}",
-            java: "class Solution {\n    public Object solution(Object input_data) {\n        // Your code here\n        return null;\n    }\n}",
-            cpp: "class Solution {\npublic:\n    auto solution(auto input_data) {\n        // Your code here\n        return {};\n    }\n};"
-          }
-        };
-        req.session.selectedDSAProblem = fallbackDSA;
-        state.dsaGenerated = true;
-        req.session.interviewState = state;
-        req.session.includeDSAProblem = false;
-        const interviewerMessage = "The AI failed to generate a new problem, so here is a fallback problem. Please solve it as you would in a real interview.";
-        history.push({ role: 'interviewer', content: interviewerMessage });
-        req.session.conversationHistory = history;
-        return res.json({ dsaProblem: fallbackDSA, response: interviewerMessage, phase: state.phase });
-      }
-    }
+    // Remove dynamic DSA problem generation logic - use only predefined problems
+    // The system will use problems from questionsPool.js instead of generating them dynamically
     
     // Enhanced response cleaning
     const cleanResponse = (response) => {
@@ -707,17 +756,17 @@ Be warm, professional, and encouraging in your closing.`;
       cleaned = cleaned.replace(/<\/think>/gi, '');
       cleaned = cleaned.replace(/\*thinking\*/gi, '');
       
-      // Remove excessive whitespace and newlines
-      cleaned = cleaned.replace(/\n\s*\n\s*\n/g, '\n\n');
+      // Remove excessive whitespace and newlines (but be more conservative)
+      cleaned = cleaned.replace(/\n\s*\n\s*\n\s*\n/g, '\n\n'); // Only remove 4+ consecutive newlines
       cleaned = cleaned.trim();
       
       console.log('Cleaned response length:', cleaned.length);
       console.log('Cleaned response (first 200 chars):', cleaned.substring(0, 200));
       
-      // If the response is empty after cleaning, provide a fallback
-      if (!cleaned || cleaned.length < 10) {
+      // Only use fallback if response is completely empty or very short
+      if (!cleaned || cleaned.length < 5) {
         console.log('⚠️ Response was too short after cleaning, using fallback');
-        cleaned = "I apologize, but I need to process that response better. Could you please repeat your answer? I want to make sure I give you proper feedback.";
+        cleaned = "I appreciate your response. Could you please elaborate a bit more so I can provide better feedback?";
       }
       
       return cleaned;
@@ -736,6 +785,7 @@ Be warm, professional, and encouraging in your closing.`;
     const responseData = { 
       response: cleanedResponse,
       phase: state.phase,
+      dsaPhase: state.dsaPhase,
       progress: {
         step: state.step,
         coreQuestionsAsked: state.coreQuestionsAsked,
@@ -744,11 +794,17 @@ Be warm, professional, and encouraging in your closing.`;
       }
     };
 
-    // Include DSA problem data if flag is set
-    if (req.session.includeDSAProblem && req.session.selectedDSAProblem) {
-      responseData.dsaProblem = req.session.selectedDSAProblem;
-      console.log('📋 Sending DSA problem data:', req.session.selectedDSAProblem.title);
-      req.session.includeDSAProblem = false; // Reset flag
+    // Add completion status
+    if (state.phase === 'complete') {
+      responseData.interviewComplete = true;
+      responseData.completionMessage = 'Interview completed successfully!';
+      console.log('🎉 Interview marked as complete');
+    }
+
+    // Include DSA problem data if a problem is being presented
+    if (state.currentProblem) {
+      responseData.dsaProblem = state.currentProblem;
+      console.log('📋 Sending DSA problem data:', state.currentProblem.title);
     }
 
     res.json(responseData);
@@ -771,14 +827,36 @@ app.get('/api/progress', (req, res) => {
   let progress = 0;
   switch (state.phase) {
     case 'introduction':
-      if (state.introQuestionsAsked === 1) progress = 15;
-      else if (state.introQuestionsAsked === 2) progress = 30;
+      if (state.introQuestionsAsked === 1) progress = 10;
+      else if (state.introQuestionsAsked === 2) progress = 20;
       else progress = 5;
       break;
     case 'core_topics':
-      if (state.coreQuestionsAsked === 1) progress = 50;
-      else if (state.coreQuestionsAsked === 2) progress = 70;
-      else progress = 35;
+      if (state.coreQuestionsAsked === 1) progress = 35;
+      else if (state.coreQuestionsAsked === 2) progress = 50;
+      else progress = 25;
+      break;
+    case 'dsa_progressive':
+      // Progressive DSA interview has multiple phases
+      switch (state.dsaPhase) {
+        case 'easy':
+          progress = state.easyProblemSolved ? 65 : 60;
+          break;
+        case 'complexity':
+          progress = state.complexityAnalyzed ? 70 : 65;
+          break;
+        case 'optimization':
+          progress = state.optimizationDiscussed ? 75 : 70;
+          break;
+        case 'medium_hard':
+          progress = state.mediumHardProblemSolved ? 90 : 80;
+          break;
+        case 'feedback':
+          progress = 95;
+          break;
+        default:
+          progress = 55;
+      }
       break;
     case 'dsa_problem':
       progress = state.dsaGenerated ? 90 : 80;
@@ -789,12 +867,19 @@ app.get('/api/progress', (req, res) => {
   
   res.json({
     phase: state.phase,
+    dsaPhase: state.dsaPhase,
     progress: Math.min(progress, 100),
     details: {
       introQuestionsAsked: state.introQuestionsAsked,
       coreQuestionsAsked: state.coreQuestionsAsked,
       usedTopics: state.usedTopics,
-      dsaGenerated: state.dsaGenerated
+      dsaGenerated: state.dsaGenerated,
+      easyProblemSolved: state.easyProblemSolved,
+      complexityAnalyzed: state.complexityAnalyzed,
+      optimizationDiscussed: state.optimizationDiscussed,
+      mediumHardProblemSolved: state.mediumHardProblemSolved,
+      currentProblemCategory: state.currentProblemCategory,
+      currentProblemType: state.currentProblemType
     }
   });
 });
@@ -804,6 +889,7 @@ app.post('/api/reset', (req, res) => {
   req.session.interviewState = null;
   req.session.conversationHistory = null;
   req.session.selectedDSAProblem = null;
+  req.session.includeDSAProblem = false;
   console.log('Code Mock interview session reset - ready for new candidate!');
   res.json({ 
     message: 'Interview session reset successfully! Code Mock is ready for a new candidate.',
@@ -816,15 +902,18 @@ app.get('/api/status', (req, res) => {
   res.json({
     interviewer: 'Code Mock',
     phase: req.session.interviewState?.phase || 'not_started',
+    dsaPhase: req.session.interviewState?.dsaPhase || null,
     state: req.session.interviewState || null,
     historyLength: req.session.conversationHistory?.length || 0,
-    selectedProblem: req.session.selectedDSAProblem?.title || null
+    selectedProblem: req.session.selectedDSAProblem?.title || null,
+    currentProblemCategory: req.session.interviewState?.currentProblemCategory || null,
+    currentProblemType: req.session.interviewState?.currentProblemType || null
   });
 });
 
 // Force transition endpoint for testing
 app.post('/api/force-transition', (req, res) => {
-  const { phase } = req.body;
+  const { phase, dsaPhase } = req.body;
   if (req.session.interviewState) {
     req.session.interviewState.phase = phase || 'introduction';
     req.session.interviewState.step = 0;
@@ -832,10 +921,21 @@ app.post('/api/force-transition', (req, res) => {
     req.session.interviewState.coreQuestionsAsked = 0;
     req.session.interviewState.dsaGenerated = false;
     req.session.interviewState.usedTopics = [];
-    console.log(`Forced transition to: ${phase || 'introduction'}`);
+    
+    // Reset progressive DSA fields
+    req.session.interviewState.dsaPhase = dsaPhase || 'easy';
+    req.session.interviewState.easyProblemSolved = false;
+    req.session.interviewState.complexityAnalyzed = false;
+    req.session.interviewState.optimizationDiscussed = false;
+    req.session.interviewState.mediumHardProblemSolved = false;
+    req.session.interviewState.currentProblem = null;
+    req.session.interviewState.currentProblemCategory = null;
+    req.session.interviewState.currentProblemType = null;
+    
+    console.log(`Forced transition to: ${phase || 'introduction'}${dsaPhase ? ` (dsaPhase: ${dsaPhase})` : ''}`);
   }
   res.json({ 
-    message: `Code Mock forced transition to ${phase || 'introduction'}`,
+    message: `Code Mock forced transition to ${phase || 'introduction'}${dsaPhase ? ` (dsaPhase: ${dsaPhase})` : ''}`,
     newState: req.session.interviewState
   });
 });
@@ -847,11 +947,15 @@ app.get('/api/test-flow', (req, res) => {
     currentState: state,
     nextPhase: state ? getNextPhase(state) : 'introduction',
     availableTopics: state && state.usedTopics ? ['os', 'oops', 'dbms', 'cns'].filter(t => !state.usedTopics.includes(t)) : ['os', 'oops', 'dbms', 'cns'],
-    dsaProblems: dsaStoryProblems.length,
+    dsaProblems: dsaProblemsPool.length,
     coreQuestions: Object.keys(coreTopicQuestions).reduce((acc, topic) => {
       acc[topic] = coreTopicQuestions[topic].length;
       return acc;
-    }, {})
+    }, {}),
+    dsaCategories: {
+      easy: Math.floor(dsaProblemsPool.length / 2), // Rough estimate for easy problems
+      medium_hard: Math.floor(dsaProblemsPool.length / 2) // Rough estimate for medium-hard problems
+    }
   });
 });
 
@@ -862,7 +966,25 @@ function getNextPhase(state) {
     return 'core_topics';
   } else if (state.phase === 'core_topics') {
     if (state.coreQuestionsAsked < 2) return 'core_topics';
-    return 'dsa_problem';
+    return 'dsa_progressive';
+  } else if (state.phase === 'dsa_progressive') {
+    // Progressive DSA flow
+    if (state.dsaPhase === 'easy') {
+      if (!state.easyProblemSolved) return 'dsa_progressive';
+      return 'dsa_progressive'; // Move to complexity analysis
+    } else if (state.dsaPhase === 'complexity') {
+      if (!state.complexityAnalyzed) return 'dsa_progressive';
+      return 'dsa_progressive'; // Move to optimization
+    } else if (state.dsaPhase === 'optimization') {
+      if (!state.optimizationDiscussed) return 'dsa_progressive';
+      return 'dsa_progressive'; // Move to medium-hard problem
+    } else if (state.dsaPhase === 'medium_hard') {
+      if (!state.mediumHardProblemSolved) return 'dsa_progressive';
+      return 'dsa_progressive'; // Move to feedback
+    } else if (state.dsaPhase === 'feedback') {
+      return 'complete';
+    }
+    return 'dsa_progressive';
   } else if (state.phase === 'dsa_problem') {
     return 'wrap_up';
   }
@@ -883,11 +1005,15 @@ app.post('/api/code/execute', executeCode);
 
 app.listen(port, () => {
   console.log(`🚀 Code Mock Interview Server running on http://localhost:${port}`);
-  console.log('\n📋 Interview Flow:');
+  console.log('\n📋 Progressive Interview Flow:');
   console.log('1. 👋 Introduction (2 questions: background + project experience)');
   console.log('2. 🧠 Core CS Topics (2 questions from OS, OOPs, DBMS, CNS)');
-  console.log('3. 💻 DSA Story-based Coding Challenge');
-  console.log('4. 🎯 Feedback & Wrap-up');
+  console.log('3. 💻 Progressive DSA Challenges:');
+  console.log('   - Easy problems (arrays, strings, linked lists)');
+  console.log('   - Time & Space complexity analysis');
+  console.log('   - Optimization discussion');
+  console.log('   - Medium-Hard problems (DP, trees, graphs, 2D arrays)');
+  console.log('4. 🎯 Comprehensive feedback & wrap-up');
   console.log('\n🔗 Available Endpoints:');
   console.log('- POST /api/chat - Main interview conversation');
   console.log('- GET /api/progress - Get interview progress');
@@ -897,5 +1023,5 @@ app.listen(port, () => {
   console.log('- GET /api/test-flow - Test interview flow');
   console.log('- POST /api/code/execute - Execute code');
   console.log('\n🤖 Make sure Ollama is running with qwen2.5-coder:7b model!');
-  console.log('💡 Code Mock is ready to conduct technical interviews!');
+  console.log('💡 Code Mock is ready to conduct progressive technical interviews!');
 });

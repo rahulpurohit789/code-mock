@@ -44,12 +44,15 @@ function App() {
   const [descriptionHeight, setDescriptionHeight] = useState(50); // percentage
   const resizeRef = useRef(null);
   const [interviewPhase, setInterviewPhase] = useState('introduction');
+  const [dsaPhase, setDsaPhase] = useState(null);
   const [messages, setMessages] = useState([
     {
       type: 'bot',
       content: "Hello! I'm Code Mock, your AI interviewer. When you're ready to begin, please introduce yourself."
     }
   ]);
+  const [currentProblemId, setCurrentProblemId] = useState(null); // Start with no problem selected
+  const [interviewComplete, setInterviewComplete] = useState(false); // Track interview completion
 
   // Refs for split instances
   const horizontalSplitRef = useRef(null);
@@ -129,6 +132,24 @@ function App() {
       
       if(response.data.phase) {
         setInterviewPhase(response.data.phase);
+      }
+      
+      if(response.data.dsaPhase) {
+        setDsaPhase(response.data.dsaPhase);
+      }
+
+      // Handle interview completion
+      if(response.data.interviewComplete) {
+        console.log('🎉 Interview completed!');
+        setInterviewComplete(true);
+        // Add a system message indicating interview completion
+        setMessages(prev => [...prev, {
+          type: 'system',
+          content: '🎉 **Interview Completed!** Thank you for participating in this mock interview. You can now review your performance or start a new interview.'
+        }]);
+        
+        // Optionally disable the chat input or show completion UI
+        // You can add a state variable to track this if needed
       }
 
     } catch (error) {
@@ -347,6 +368,7 @@ function App() {
       setCode('');
       setOutput(null);
       setInterviewPhase('introduction');
+      setInterviewComplete(false); // Reset interview completion state
       console.log('Frontend state has been reset.');
 
     } catch (error) {
@@ -364,7 +386,7 @@ function App() {
     
     // Format and set visible test cases
     const formattedVisibleTestCases = dsaProblem.testCases.map(tc => ({
-      input: tc.input,
+      input: Array.isArray(tc.inputs) ? tc.inputs.join(', ') : tc.inputs,
       expectedOutput: tc.output,
       explanation: tc.explanation,
     }));
@@ -372,7 +394,7 @@ function App() {
     
     // Format and set hidden test cases
     const formattedHiddenTestCases = dsaProblem.hiddenTestCases.map(tc => ({
-      input: tc.input,
+      input: Array.isArray(tc.inputs) ? tc.inputs.join(', ') : tc.inputs,
       expectedOutput: tc.output,
     }));
     setHiddenTestCases(formattedHiddenTestCases);
@@ -384,42 +406,42 @@ function App() {
     if (dsaProblem.skeletonCode && dsaProblem.skeletonCode[language]) {
       setCode(dsaProblem.skeletonCode[language]);
       console.log(`✏️ Set skeleton code for ${language}.`);
-    } else {
-      // Fallback if skeleton code for the language is missing
-      const fallbackTemplates = {
-          python: `def solution(input_data):\n    # Your code here\n    pass`,
-          javascript: `function solution(input_data) {\n    // Your code here\n}`,
-          java: `class Solution {\n    public Object solution(Object input_data) {\n        // Your code here\n        return null;\n    }\n}`,
-          cpp: `class Solution {\npublic:\n    auto solution(auto input_data) {\n        // Your code here\n        return {};\n    }\n};`
-      };
-      setCode(fallbackTemplates[language]);
-      console.warn(`⚠️ Skeleton code for ${language} not found in AI response. Using fallback.`);
     }
   };
 
-  const handlePhaseTransition = async (newPhase) => {
-    console.log(`🚀 Forcing transition to: ${newPhase}`);
+  const handlePhaseTransition = async (newPhase, newDsaPhase = null) => {
+    console.log(`🚀 Forcing transition to: ${newPhase}${newDsaPhase ? ` (dsaPhase: ${newDsaPhase})` : ''}`);
     try {
+      const postData = { phase: newPhase };
+      if (newDsaPhase) {
+        postData.dsaPhase = newDsaPhase;
+      }
+      
       await axios.post('http://localhost:3001/api/force-transition', 
-        { phase: newPhase },
+        postData,
         { withCredentials: true }
       );
       
       setInterviewPhase(newPhase);
+      if (newDsaPhase) {
+        setDsaPhase(newDsaPhase);
+      }
 
       // Add a system message to the chat
       setMessages(prev => [...prev, {
         type: 'bot',
-        content: `Switched to ${newPhase.replace('_', ' ')} phase. Please provide your input to continue.`
+        content: `Switched to ${newPhase.replace('_', ' ')}${newDsaPhase ? ` (${newDsaPhase.replace('_', ' ')})` : ''} phase. Please provide your input to continue.`
       }]);
       
       // Optionally reset parts of the state
-      if (newPhase !== 'dsa_problem') {
+      if (newPhase !== 'dsa_progressive') {
         setProblemDescription('');
         setTestCases([]);
         setHiddenTestCases([]);
         setCode('');
         setOutput(null);
+        setDsaPhase(null);
+        setInterviewComplete(false); // Reset interview completion state
       }
       
     } catch (error) {
@@ -435,6 +457,7 @@ function App() {
       <div className="flex items-center justify-between bg-white dark:bg-[#1e1e1e] border-b px-4 py-2" style={{ borderColor: themeColors.border.primary }}>
         <InterviewProgressBar 
           phase={interviewPhase}
+          dsaPhase={dsaPhase}
           onPhaseClick={handlePhaseTransition}
         />
         <button
@@ -489,6 +512,7 @@ function App() {
                       messages={messages}
                       isLoading={isLoading}
                       onSendMessage={handleSendMessage}
+                      interviewComplete={interviewComplete}
                     />
                   </div>
                 </Split>
@@ -568,6 +592,8 @@ function App() {
                       onLanguageChange={handleLanguageChange}
                       isDarkMode={isDarkMode}
                       themeColors={themeColors}
+                      problemDescription={problemDescription}
+                      testCases={testCases}
                     />
                   </div>
                 </div>

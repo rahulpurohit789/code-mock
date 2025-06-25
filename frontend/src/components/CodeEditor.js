@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import Editor from '@monaco-editor/react';
 
 const SUPPORTED_LANGUAGES = [
@@ -8,7 +8,15 @@ const SUPPORTED_LANGUAGES = [
   { id: 'cpp', name: 'C++' }
 ];
 
-function CodeEditor({ code, language, onCodeChange, onLanguageChange, isDarkMode }) {
+function CodeEditor({ 
+  code, 
+  language, 
+  onCodeChange, 
+  onLanguageChange, 
+  isDarkMode, 
+  problemDescription,
+  testCases
+}) {
   const handleEditorChange = (value) => {
     onCodeChange(value);
   };
@@ -39,21 +47,23 @@ function CodeEditor({ code, language, onCodeChange, onLanguageChange, isDarkMode
           <h2 className={`text-lg font-semibold ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
             Code Editor
           </h2>
-          <select
-            value={language}
-            onChange={(e) => handleLanguageChange(e.target.value)}
-            className={`px-3 py-1 rounded-md shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
-              isDarkMode
-                ? 'bg-gray-700 border-gray-600 text-white'
-                : 'bg-white border-gray-300 text-gray-900'
-            } border`}
-          >
-            {SUPPORTED_LANGUAGES.map(lang => (
-              <option key={lang.id} value={lang.id}>
-                {lang.name}
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center space-x-2">
+            <select
+              value={language}
+              onChange={(e) => handleLanguageChange(e.target.value)}
+              className={`px-3 py-1 rounded-md shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
+                isDarkMode
+                  ? 'bg-gray-700 border-gray-600 text-white'
+                  : 'bg-white border-gray-300 text-gray-900'
+              } border`}
+            >
+              {SUPPORTED_LANGUAGES.map(lang => (
+                <option key={lang.id} value={lang.id}>
+                  {lang.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
       <div className="flex-1 overflow-hidden">

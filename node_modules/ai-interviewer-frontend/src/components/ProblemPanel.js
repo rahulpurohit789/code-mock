@@ -1,5 +1,41 @@
 import React, { useRef, useEffect } from 'react';
 
+// Helper function to parse markdown-like text and apply styles
+const formatDescription = (text, isDarkMode) => {
+  if (!text) return null;
+
+  const lines = text.split('\n');
+
+  return lines.map((line, index) => {
+    // Handle empty lines to preserve paragraph breaks
+    if (line.trim() === '') {
+      return <div key={index} className="h-4" />;
+    }
+
+    // Handle ### Headings
+    if (line.startsWith('### ')) {
+      return null;
+    }
+
+    // Handle **Bold** text within a line
+    const parts = line.split(/(\*\*.*?\*\*)/g);
+    return (
+      <p key={index} className="my-1">
+        {parts.map((part, i) => {
+          if (part.startsWith('**') && part.endsWith('**')) {
+            return (
+              <strong key={i} className={`font-bold ${isDarkMode ? 'text-white' : 'text-black'}`}>
+                {part.slice(2, -2)}
+              </strong>
+            );
+          }
+          return part;
+        })}
+      </p>
+    );
+  });
+};
+
 function ProblemPanel({ isDarkMode, problemDescription, testCases }) {
   const scrollContainerRef = useRef(null);
 
@@ -54,18 +90,18 @@ function ProblemPanel({ isDarkMode, problemDescription, testCases }) {
           {problemDescription && (
             <>
               <div id="problem-description" className="space-y-4">
-                <h2 className={`text-lg font-semibold ${isDarkMode ? 'text-[#ff8c00]' : 'text-gray-900'}`}>
-                  Problem Description
+                <h2 className={`text-lg font-bold ${isDarkMode ? 'text-orange-400' : 'text-orange-600'}`}>
+                  🎯 Coding Challenge Details
                 </h2>
                 <div className="prose max-w-none">
-                  <div className="whitespace-pre-wrap">{problemDescription}</div>
+                  {formatDescription(problemDescription, isDarkMode)}
                 </div>
               </div>
               
               {testCases.length > 0 && (
                 <div id="test-cases" className="space-y-4">
-                  <h2 className={`text-lg font-semibold ${isDarkMode ? 'text-[#ff8c00]' : 'text-gray-900'}`}>
-                    Example Test Cases
+                  <h2 className={`text-lg font-bold ${isDarkMode ? 'text-orange-400' : 'text-orange-600'}`}>
+                    🧪 Sample Input & Expected Output
                   </h2>
                   <div className="space-y-4">
                     {testCases.map((testCase, index) => (
@@ -77,7 +113,7 @@ function ProblemPanel({ isDarkMode, problemDescription, testCases }) {
                       >
                         <div className={`font-mono text-sm ${isDarkMode ? 'text-[#cccccc]' : 'text-gray-600'}`}>
                           <div className="mb-2">
-                            <span className={`font-medium ${isDarkMode ? 'text-[#ff8c00]' : 'text-gray-900'}`}>
+                            <span className={`font-medium ${isDarkMode ? 'text-orange-500' : 'text-orange-600'}`}>
                               Test Case {index + 1}
                             </span>
                           </div>
