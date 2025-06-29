@@ -118,20 +118,31 @@ exports.executeCode = async (req, res) => {
             
             // Parse the test case input to extract parameters
             if (testCase.input) {
-            const pythonParams = testCase.input.match(/\[(.*?)\],\s*(\d+)/);
-            if (pythonParams) {
-              const arrayParam = pythonParams[1];
-              const targetParam = pythonParams[2];
-                modifiedCode += `print(${pythonFuncName}([${arrayParam}], ${targetParam}))`;
-              } else {
-                // Handle single array or string parameters
-                const arrayMatch = testCase.input.match(/\[(.*?)\]/);
+              // Handle the format: "[2, 7, 11, 15], 9" or "[2, 7, 11, 15]"
+              const inputParts = testCase.input.split(',').map(part => part.trim());
+              
+              if (inputParts.length >= 2) {
+                // Multiple parameters: array and target
+                const arrayPart = inputParts[0];
+                const targetPart = inputParts[1];
+                
+                // Extract array content from "[...]"
+                const arrayMatch = arrayPart.match(/\[(.*?)\]/);
                 if (arrayMatch) {
-                  const arrayParam = arrayMatch[1];
-                  modifiedCode += `print(${pythonFuncName}([${arrayParam}]))`;
+                  const arrayContent = arrayMatch[1];
+                  modifiedCode += `print(${pythonFuncName}([${arrayContent}], ${targetPart}))`;
                 } else {
                   modifiedCode += `print(${pythonFuncName}(${testCase.input}))`;
-              }
+                }
+              } else {
+                // Single parameter: just array
+                const arrayMatch = inputParts[0].match(/\[(.*?)\]/);
+                if (arrayMatch) {
+                  const arrayContent = arrayMatch[1];
+                  modifiedCode += `print(${pythonFuncName}([${arrayContent}]))`;
+                } else {
+                  modifiedCode += `print(${pythonFuncName}(${testCase.input}))`;
+                }
               }
             } else {
               modifiedCode += `print(${pythonFuncName}())`;
@@ -146,20 +157,31 @@ exports.executeCode = async (req, res) => {
             
             // Parse the test case input to extract parameters
             if (testCase.input) {
-            const jsParams = testCase.input.match(/\[(.*?)\],\s*(\d+)/);
-            if (jsParams) {
-              const arrayParam = jsParams[1];
-              const targetParam = jsParams[2];
-                modifiedCode += `console.log(${jsFuncName}([${arrayParam}], ${targetParam}));`;
-              } else {
-                // Handle single array or string parameters
-                const arrayMatch = testCase.input.match(/\[(.*?)\]/);
+              // Handle the format: "[2, 7, 11, 15], 9" or "[2, 7, 11, 15]"
+              const inputParts = testCase.input.split(',').map(part => part.trim());
+              
+              if (inputParts.length >= 2) {
+                // Multiple parameters: array and target
+                const arrayPart = inputParts[0];
+                const targetPart = inputParts[1];
+                
+                // Extract array content from "[...]"
+                const arrayMatch = arrayPart.match(/\[(.*?)\]/);
                 if (arrayMatch) {
-                  const arrayParam = arrayMatch[1];
-                  modifiedCode += `console.log(${jsFuncName}([${arrayParam}]));`;
+                  const arrayContent = arrayMatch[1];
+                  modifiedCode += `console.log(${jsFuncName}([${arrayContent}], ${targetPart}));`;
                 } else {
                   modifiedCode += `console.log(${jsFuncName}(${testCase.input}));`;
-              }
+                }
+              } else {
+                // Single parameter: just array
+                const arrayMatch = inputParts[0].match(/\[(.*?)\]/);
+                if (arrayMatch) {
+                  const arrayContent = arrayMatch[1];
+                  modifiedCode += `console.log(${jsFuncName}([${arrayContent}]));`;
+                } else {
+                  modifiedCode += `console.log(${jsFuncName}(${testCase.input}));`;
+                }
               }
             } else {
               modifiedCode += `console.log(${jsFuncName}());`;
@@ -176,47 +198,63 @@ exports.executeCode = async (req, res) => {
             
             // Parse the test case input to extract parameters
             if (testCase.input) {
-            const javaParams = testCase.input.match(/\[(.*?)\],\s*(\d+)/);
-            if (javaParams) {
-              const arrayParam = javaParams[1];
-              const targetParam = javaParams[2];
-              modifiedCode = modifiedCode.replace(
-                /public\s+static\s+void\s+main\s*\([^)]*\)\s*{/,
-                `public static void main(String[] args) {
+              // Handle the format: "[2, 7, 11, 15], 9" or "[2, 7, 11, 15]"
+              const inputParts = testCase.input.split(',').map(part => part.trim());
+              
+              if (inputParts.length >= 2) {
+                // Multiple parameters: array and target
+                const arrayPart = inputParts[0];
+                const targetPart = inputParts[1];
+                
+                // Extract array content from "[...]"
+                const arrayMatch = arrayPart.match(/\[(.*?)\]/);
+                if (arrayMatch) {
+                  const arrayContent = arrayMatch[1];
+                  modifiedCode = modifiedCode.replace(
+                    /public\s+static\s+void\s+main\s*\([^)]*\)\s*{/,
+                    `public static void main(String[] args) {
                     Solution solution = new Solution();
-                    int[] nums = {${arrayParam}};
-                    int target = ${targetParam};
+                    int[] nums = {${arrayContent}};
+                    int target = ${targetPart};
                     int[] result = solution.${javaFuncName}(nums, target);
                     System.out.println("[" + result[0] + "," + result[1] + "]");`
-              );
-            } else {
-              // Handle string reversal case
-              const stringParams = testCase.input.match(/\[(.*?)\]/);
-              if (stringParams) {
-                const chars = stringParams[1].split(',').map(c => c.trim().replace(/"/g, "'"));
-                modifiedCode = modifiedCode.replace(
-                  /public\s+static\s+void\s+main\s*\([^)]*\)\s*{/,
-                  `public static void main(String[] args) {
-                      Solution solution = new Solution();
-                      char[] s = {${chars.join(', ')}};
-                        solution.${javaFuncName}(s);
-                      System.out.println(new String(s));`
-                );
+                  );
+                } else {
+                  modifiedCode = modifiedCode.replace(
+                    /public\s+static\s+void\s+main\s*\([^)]*\)\s*{/,
+                    `public static void main(String[] args) {
+                    Solution solution = new Solution();
+                    System.out.println(solution.${javaFuncName}(${testCase.input}));`
+                  );
+                }
               } else {
-                modifiedCode = modifiedCode.replace(
-                  /public\s+static\s+void\s+main\s*\([^)]*\)\s*{/,
-                  `public static void main(String[] args) {
-                      Solution solution = new Solution();
-                        System.out.println(solution.${javaFuncName}(${testCase.input}));`
-                );
-              }
+                // Single parameter: just array
+                const arrayMatch = inputParts[0].match(/\[(.*?)\]/);
+                if (arrayMatch) {
+                  const arrayContent = arrayMatch[1];
+                  modifiedCode = modifiedCode.replace(
+                    /public\s+static\s+void\s+main\s*\([^)]*\)\s*{/,
+                    `public static void main(String[] args) {
+                    Solution solution = new Solution();
+                    int[] nums = {${arrayContent}};
+                    int result = solution.${javaFuncName}(nums);
+                    System.out.println(result);`
+                  );
+                } else {
+                  modifiedCode = modifiedCode.replace(
+                    /public\s+static\s+void\s+main\s*\([^)]*\)\s*{/,
+                    `public static void main(String[] args) {
+                    Solution solution = new Solution();
+                    System.out.println(solution.${javaFuncName}(${testCase.input}));`
+                  );
+                }
               }
             } else {
               modifiedCode = modifiedCode.replace(
                 /public\s+static\s+void\s+main\s*\([^)]*\)\s*{/,
                 `public static void main(String[] args) {
-                    Solution solution = new Solution();
-                    System.out.println(solution.${javaFuncName}());`
+                Solution solution = new Solution();
+                System.out.println(solution.${javaFuncName}());`
               );
             }
             break;
@@ -229,38 +267,52 @@ exports.executeCode = async (req, res) => {
             
             // Parse the test case input to extract parameters
             if (testCase.input) {
-            const cppParams = testCase.input.match(/\[(.*?)\],\s*(\d+)/);
-            if (cppParams) {
-              const arrayParam = cppParams[1];
-              const targetParam = cppParams[2];
-              modifiedCode += `int main() {
+              // Handle the format: "[2, 7, 11, 15], 9" or "[2, 7, 11, 15]"
+              const inputParts = testCase.input.split(',').map(part => part.trim());
+              
+              if (inputParts.length >= 2) {
+                // Multiple parameters: array and target
+                const arrayPart = inputParts[0];
+                const targetPart = inputParts[1];
+                
+                // Extract array content from "[...]"
+                const arrayMatch = arrayPart.match(/\[(.*?)\]/);
+                if (arrayMatch) {
+                  const arrayContent = arrayMatch[1];
+                  modifiedCode += `int main() {
                 Solution solution;
-                std::vector<int> nums = {${arrayParam}};
-                int target = ${targetParam};
+                std::vector<int> nums = {${arrayContent}};
+                int target = ${targetPart};
                 std::vector<int> result = solution.${cppFuncName}(nums, target);
                 std::cout << "[" << result[0] << "," << result[1] << "]" << std::endl;
                 return 0;
             }`;
-            } else {
-              // Handle string reversal case
-              const stringParams = testCase.input.match(/\[(.*?)\]/);
-              if (stringParams) {
-                const chars = stringParams[1].split(',').map(c => c.trim().replace(/"/g, "'"));
-                modifiedCode += `int main() {
-                Solution solution;
-                std::vector<char> s = {${chars.join(', ')}};
-                solution.${cppFuncName}(s);
-                for (char c : s) std::cout << c;
-                std::cout << std::endl;
-                return 0;
-            }`;
-              } else {
-                modifiedCode += `int main() {
+                } else {
+                  modifiedCode += `int main() {
                 Solution solution;
                 std::cout << solution.${cppFuncName}(${testCase.input}) << std::endl;
                 return 0;
             }`;
-              }
+                }
+              } else {
+                // Single parameter: just array
+                const arrayMatch = inputParts[0].match(/\[(.*?)\]/);
+                if (arrayMatch) {
+                  const arrayContent = arrayMatch[1];
+                  modifiedCode += `int main() {
+                Solution solution;
+                std::vector<int> nums = {${arrayContent}};
+                int result = solution.${cppFuncName}(nums);
+                std::cout << result << std::endl;
+                return 0;
+            }`;
+                } else {
+                  modifiedCode += `int main() {
+                Solution solution;
+                std::cout << solution.${cppFuncName}(${testCase.input}) << std::endl;
+                return 0;
+            }`;
+                }
               }
             } else {
               modifiedCode += `int main() {
@@ -289,11 +341,29 @@ exports.executeCode = async (req, res) => {
         
         // Normalize outputs
         const normalizeOutput = (str) => {
-          return str
-            .replace(/[\s\n]+/g, '') // Remove all whitespace and newlines
-            .replace(/\[/g, '[')     // Ensure consistent bracket formatting
-            .replace(/\]/g, ']')
-            .replace(/,/g, ', ');    // Add space after commas
+          if (!str) return '';
+          
+          // For boolean outputs, just trim whitespace
+          if (str.toLowerCase().trim() === 'true' || str.toLowerCase().trim() === 'false') {
+            return str.toLowerCase().trim();
+          }
+          
+          // For numeric outputs, just trim whitespace
+          if (!isNaN(str.trim()) && str.trim() !== '') {
+            return str.trim();
+          }
+          
+          // For array outputs, normalize formatting
+          if (str.includes('[') && str.includes(']')) {
+            return str
+              .replace(/[\s\n]+/g, '') // Remove all whitespace and newlines
+              .replace(/\[/g, '[')     // Ensure consistent bracket formatting
+              .replace(/\]/g, ']')
+              .replace(/,/g, ', ');    // Add space after commas
+          }
+          
+          // For other outputs, just trim whitespace
+          return str.trim();
         };
         
         const normalizedActual = normalizeOutput(actualOutput);

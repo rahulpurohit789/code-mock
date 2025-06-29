@@ -386,7 +386,7 @@ function App() {
     
     // Format and set visible test cases
     const formattedVisibleTestCases = dsaProblem.testCases.map(tc => ({
-      input: Array.isArray(tc.inputs) ? tc.inputs.join(', ') : tc.inputs,
+      input: tc.inputs.join(', '),
       expectedOutput: tc.output,
       explanation: tc.explanation,
     }));
@@ -394,7 +394,7 @@ function App() {
     
     // Format and set hidden test cases
     const formattedHiddenTestCases = dsaProblem.hiddenTestCases.map(tc => ({
-      input: Array.isArray(tc.inputs) ? tc.inputs.join(', ') : tc.inputs,
+      input: tc.inputs.join(', '),
       expectedOutput: tc.output,
     }));
     setHiddenTestCases(formattedHiddenTestCases);

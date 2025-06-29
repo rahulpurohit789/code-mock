@@ -89,12 +89,14 @@ app.post('/api/chat', async (req, res) => {
         coreQuestionsAsked: 0,
         dsaGenerated: false,
         usedTopics: [], // Track which topics have been covered
+        candidateName: null, // Store candidate's name
         // New fields for progressive DSA interview
         dsaPhase: 'easy', // 'easy', 'complexity', 'optimization', 'medium_hard', 'feedback'
         easyProblemSolved: false,
         complexityAnalyzed: false,
         optimizationDiscussed: false,
         mediumHardProblemSolved: false,
+        mediumHardSolutionProvided: false, // Track if user has provided substantial solution
         currentProblem: null,
         currentProblemCategory: null,
         currentProblemType: null
@@ -211,6 +213,15 @@ Be encouraging but thorough. Ask 2-3 specific questions about their code and app
     } else if (state.phase === 'introduction') {
       console.log('🔍 Executing introduction phase');
       
+      // Extract candidate name from introduction if not already stored
+      if (!state.candidateName && message) {
+        const nameMatch = message.match(/Hello!? I'?m\s+([A-Za-z\s]+?)(?:,|\.|!|$)/i);
+        if (nameMatch) {
+          state.candidateName = nameMatch[1].trim();
+          console.log('👤 Extracted candidate name:', state.candidateName);
+        }
+      }
+      
       // Handle introduction phase
       if (state.introQuestionsAsked === 0) {
         // First introduction question
@@ -222,12 +233,12 @@ You are starting the interview. The candidate just introduced themselves: "${mes
 Acknowledge their introduction warmly and ask about their technical background and experience. Be conversational and genuinely interested in their background.
 
 Focus on:
-- Acknowledge their introduction with their actual name
+- Acknowledge their introduction with their actual name (${state.candidateName || 'the candidate'})
 - Ask about their educational background
 - Ask about their technical experience and programming languages
 - Be warm and professional
 
-Generate a natural, conversational response. Do not use placeholder text like "[Candidate's Name]" - use their actual name.`;
+Generate a natural, conversational response. Use their actual name: ${state.candidateName || 'the candidate'}`;
         
       } else if (state.introQuestionsAsked === 1) {
         // Second introduction question
@@ -588,70 +599,77 @@ Focus on:
 
 Generate a natural response that asks for their approach without giving away the solution.`;
       
-    } else if (state.phase === 'dsa_progressive' && state.dsaPhase === 'medium_hard' && state.mediumHardProblemSolved) {
-      console.log('🔍 Executing final feedback and wrap-up path');
-      // After medium-hard problem, move to final feedback
-      state.dsaPhase = 'feedback';
-      
-      fullPrompt = `${baseSystemPrompt}
-
-The candidate just provided their solution to the medium-hard problem: "${message}"
-
-This is the final part of the interview. Provide comprehensive feedback on their overall interview performance.
-
-Focus on:
-- Thank them for completing the interview
-- Provide specific feedback on their strengths
-- Mention areas for improvement constructively
-- Give an overall assessment
-- Provide specific recommendations
-- Be warm, professional, and constructive
-
-Generate a comprehensive feedback response that is helpful and encouraging.`;
-      
-    } else if (state.phase === 'dsa_progressive' && state.dsaPhase === 'feedback') {
-      console.log('🔍 Executing final wrap-up path');
-      // Final wrap-up - mark interview as complete
-      state.phase = 'complete';
-      state.dsaPhase = 'complete';
-      
-      fullPrompt = `${baseSystemPrompt}
-
-The candidate has received comprehensive feedback. Their response is: "${message}"
-
-This is the FINAL response of the interview. Provide a conclusive wrap-up and end the interview.
-
-Focus on:
-- Thank them for their response
-- Conclude the interview professionally
-- Encourage them to keep learning and practicing
-- Wish them well in their career journey
-- End on a positive and encouraging note
-- Make it clear that the interview is now complete
-
-Generate a natural wrap-up response that concludes the interview professionally and indicates the interview is over.`;
-      
-    } else if (state.phase === 'complete') {
-      console.log('🔍 Interview already completed');
-      // Interview is already complete
-      fullPrompt = `${baseSystemPrompt}
-
-The interview has already been completed. The candidate's response is: "${message}"
-
-Provide a brief acknowledgment that the interview is complete.
-
-Focus on:
-- Acknowledge that the interview is complete
-- Thank them for their time
-- Wish them well
-- Keep the response brief and professional
-
-Generate a brief response acknowledging the interview completion.`;
-    } else if (state.phase === 'dsa_progressive' && state.dsaPhase === 'medium_hard' && !state.mediumHardProblemSolved && state.currentProblem) {
+    } else if (state.phase === 'dsa_progressive' && state.dsaPhase === 'medium_hard' && state.mediumHardProblemSolved && !state.mediumHardSolutionProvided) {
       console.log('🔍 User is working on the medium-hard DSA problem');
       // User is working on the medium-hard problem - provide guidance and encouragement
       
-      fullPrompt = `${baseSystemPrompt}
+      // Check if the user has provided a substantial solution (not just "yes" or short responses)
+      const isSubstantialSolution = message.length > 100 && (
+        message.toLowerCase().includes('solution') ||
+        message.toLowerCase().includes('code') ||
+        message.toLowerCase().includes('algorithm') ||
+        message.toLowerCase().includes('approach') ||
+        message.toLowerCase().includes('complexity') ||
+        message.toLowerCase().includes('time') ||
+        message.toLowerCase().includes('space') ||
+        message.toLowerCase().includes('o(') ||
+        message.toLowerCase().includes('binary') ||
+        message.toLowerCase().includes('search') ||
+        message.toLowerCase().includes('sort') ||
+        message.toLowerCase().includes('array') ||
+        message.toLowerCase().includes('string') ||
+        message.toLowerCase().includes('tree') ||
+        message.toLowerCase().includes('graph') ||
+        message.toLowerCase().includes('dynamic') ||
+        message.toLowerCase().includes('dp') ||
+        message.toLowerCase().includes('recursion') ||
+        message.toLowerCase().includes('iteration')
+      );
+      
+      if (isSubstantialSolution) {
+        // User has provided a substantial solution, move to feedback
+        state.mediumHardSolutionProvided = true;
+        state.dsaPhase = 'feedback';
+        
+        // Analyze conversation history for personalized feedback
+        const conversationSummary = history
+          .filter(msg => msg.role === 'candidate')
+          .map(msg => msg.content)
+          .join(' ');
+        
+        fullPrompt = `${baseSystemPrompt}
+
+The candidate just provided their solution to the medium-hard problem: "${message}"
+
+This is the final part of the interview. Provide comprehensive, personalized feedback on their overall interview performance.
+
+CANDIDATE NAME: ${state.candidateName || 'the candidate'}
+
+CONVERSATION SUMMARY FOR PERSONALIZED FEEDBACK:
+${conversationSummary.substring(0, 1000)}...
+
+INTERVIEW PERFORMANCE ANALYSIS:
+- Introduction: ${state.introQuestionsAsked >= 2 ? 'Strong introduction with clear background' : 'Basic introduction provided'}
+- Core Topics: ${state.coreQuestionsAsked >= 2 ? 'Demonstrated solid understanding of core CS concepts' : 'Basic knowledge of core topics'}
+- DSA Problems: 
+  * First Problem: ${state.easyProblemSolved ? 'Successfully solved the easy problem' : 'Struggled with the easy problem'}
+  * Second Problem: ${state.mediumHardProblemSolved ? 'Successfully solved the medium-hard problem' : 'Struggled with the medium-hard problem'}
+- Complexity Analysis: ${state.complexityAnalyzed ? 'Showed good understanding of time/space complexity' : 'Limited complexity analysis'}
+- Optimization Discussion: ${state.optimizationDiscussed ? 'Demonstrated optimization thinking' : 'Basic optimization understanding'}
+
+Focus on:
+- Thank them for completing the interview using their name: ${state.candidateName || 'the candidate'}
+- Provide specific feedback on their strengths based on their actual responses
+- Mention areas for improvement constructively based on their performance
+- Give an overall assessment considering their background and project experience
+- Provide specific recommendations for their career growth
+- Be warm, professional, and constructive
+- Reference specific details from their conversation (projects, courses, technical skills mentioned)
+
+Generate a comprehensive, personalized feedback response that is helpful and encouraging based on their actual interview performance.`;
+      } else {
+        // User is still working on the problem, provide guidance
+        fullPrompt = `${baseSystemPrompt}
 
 The candidate is working on the medium-hard DSA problem: "${message}"
 
@@ -665,6 +683,51 @@ Focus on:
 - Be supportive and helpful
 
 Generate a natural response that guides them without providing the solution.`;
+      }
+      
+    } else if (state.phase === 'dsa_progressive' && state.dsaPhase === 'feedback') {
+      console.log('🔍 Executing final wrap-up path');
+      // Final wrap-up - mark interview as complete
+      state.phase = 'complete';
+      state.dsaPhase = 'complete';
+      
+      fullPrompt = `${baseSystemPrompt}
+
+The candidate has received comprehensive feedback. Their response is: "${message}"
+
+This is the FINAL response of the interview. Provide a conclusive wrap-up and end the interview.
+
+CANDIDATE NAME: ${state.candidateName || 'the candidate'}
+
+Focus on:
+- Thank them for their response using their name: ${state.candidateName || 'the candidate'}
+- Conclude the interview professionally
+- Encourage them to keep learning and practicing
+- Wish them well in their career journey
+- End on a positive and encouraging note
+- Make it clear that the interview is now complete
+- Reference their background and projects if relevant
+
+Generate a natural wrap-up response that concludes the interview professionally and indicates the interview is over. Use their actual name: ${state.candidateName || 'the candidate'}`;
+      
+    } else if (state.phase === 'complete') {
+      console.log('🔍 Interview already completed');
+      // Interview is already complete
+      fullPrompt = `${baseSystemPrompt}
+
+The interview has already been completed. The candidate's response is: "${message}"
+
+Provide a brief acknowledgment that the interview is complete.
+
+CANDIDATE NAME: ${state.candidateName || 'the candidate'}
+
+Focus on:
+- Acknowledge that the interview is complete
+- Thank them for their time using their name: ${state.candidateName || 'the candidate'}
+- Wish them well
+- Keep the response brief and professional
+
+Generate a brief response acknowledging the interview completion. Use their actual name: ${state.candidateName || 'the candidate'}`;
     }
 
     // Fallback case for unhandled states
@@ -921,6 +984,7 @@ app.post('/api/force-transition', (req, res) => {
     req.session.interviewState.coreQuestionsAsked = 0;
     req.session.interviewState.dsaGenerated = false;
     req.session.interviewState.usedTopics = [];
+    req.session.interviewState.candidateName = null; // Reset candidate name
     
     // Reset progressive DSA fields
     req.session.interviewState.dsaPhase = dsaPhase || 'easy';
@@ -928,6 +992,7 @@ app.post('/api/force-transition', (req, res) => {
     req.session.interviewState.complexityAnalyzed = false;
     req.session.interviewState.optimizationDiscussed = false;
     req.session.interviewState.mediumHardProblemSolved = false;
+    req.session.interviewState.mediumHardSolutionProvided = false;
     req.session.interviewState.currentProblem = null;
     req.session.interviewState.currentProblemCategory = null;
     req.session.interviewState.currentProblemType = null;

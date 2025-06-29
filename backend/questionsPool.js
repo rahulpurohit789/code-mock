@@ -21,10 +21,10 @@ const dsaProblemsPool = [
         { "inputs": ["[0, 4, 3, 0]", "0"], "output": "[0, 3]" }
       ],
       "skeletonCode": {
-        "python": "def findTwoSum(nums, target):\n    # Your code here\n    pass",
-        "javascript": "function findTwoSum(nums, target) {\n    // Your code here\n}",
-        "java": "import java.util.Arrays;\n\nclass Solution {\n    public int[] findTwoSum(int[] nums, int target) {\n        // Your code here\n        return new int[2];\n    }\n}",
-        "cpp": "#include <iostream>\n#include <vector>\nusing namespace std;\n\nclass Solution {\npublic:\n    vector<int> findTwoSum(vector<int>& nums, int target) {\n        // Your code here\n        return {};\n    }\n};"
+        "python": "def twoSum(nums, target):\n    # Your code here\n    pass",
+        "javascript": "function twoSum(nums, target) {\n    // Your code here\n}",
+        "java": "import java.util.Arrays;\n\nclass Solution {\n    public int[] twoSum(int[] nums, int target) {\n        // Your code here\n        return new int[2];\n    }\n}",
+        "cpp": "#include <iostream>\n#include <vector>\nusing namespace std;\n\nclass Solution {\npublic:\n    vector<int> twoSum(vector<int>& nums, int target) {\n        // Your code here\n        return {};\n    }\n};"
       }
     },
     {
