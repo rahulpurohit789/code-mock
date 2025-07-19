@@ -8,6 +8,9 @@ A full-stack web application that provides an AI-powered technical interview exp
 - **Node.js** (v16 or higher) - [Download here](https://nodejs.org/)
 - **npm** (v6 or higher) - Comes with Node.js
 - **Git** - [Download here](https://git-scm.com/)
+- **Ollama** - [Download here](https://ollama.ai/download) (for local AI model)
+- **At least 8GB RAM** (recommended for AI model)
+- **At least 10GB free disk space** (for AI model storage)
 
 ### 1. Download the Project
 
@@ -37,7 +40,41 @@ npm install
 cd ..
 ```
 
-### 3. Start the Application
+### 3. Set Up AI Model (Ollama)
+
+The AI Interviewer uses Ollama to run AI models locally. You need to install and configure Ollama with the required model.
+
+#### Step 1: Install Ollama
+```bash
+# Windows (using winget)
+winget install Ollama.Ollama
+
+# Or download from: https://ollama.ai/download
+# Then run the installer
+```
+
+#### Step 2: Download the AI Model
+```bash
+# Start Ollama service
+ollama serve
+
+# In a new terminal, pull the required model
+ollama pull qwen2.5-coder:7b
+
+# Alternative model (if qwen2.5-coder:7b is not available)
+ollama pull deepseek-coder:7b
+```
+
+#### Step 3: Verify Model Installation
+```bash
+# List installed models
+ollama list
+
+# Test the model
+ollama run qwen2.5-coder:7b "Hello, can you help me with coding?"
+```
+
+### 4. Start the Application
 
 #### Option A: Using the Root Script (Recommended)
 ```bash
@@ -65,16 +102,18 @@ cd frontend
 npm start
 ```
 
-### 4. Access the Application
+### 5. Access the Application
 
 - **Frontend**: http://localhost:3000
 - **Backend API**: http://localhost:3001
+- **Ollama API**: http://localhost:11434
 
 ## 🎯 Features
 
 - **Interactive Code Editor**: Monaco Editor with syntax highlighting
 - **Real-time Code Execution**: Execute code in multiple programming languages
-- **AI Interview Sessions**: Simulated technical interviews with AI
+- **AI Interview Sessions**: Simulated technical interviews with local AI model
+- **Local AI Processing**: Runs completely offline using Ollama
 - **Problem Library**: Collection of coding challenges and problems
 - **Test Case Management**: Add and run custom test cases
 - **Modern UI**: Clean, responsive interface with TailwindCSS
@@ -135,6 +174,15 @@ node test-dsa-phase.js
 node test-questionspool.js
 ```
 
+### Test AI Model
+```bash
+# Test if Ollama is working
+ollama run qwen2.5-coder:7b "Write a simple hello world program in Python"
+
+# Test interview flow with AI
+node test-interview.js
+```
+
 ## 🐛 Troubleshooting
 
 ### Common Issues
@@ -148,7 +196,33 @@ taskkill /PID <PID> /F
 # Windows - Find and kill process using port 3001  
 netstat -ano | findstr :3001
 taskkill /PID <PID> /F
+
+# Windows - Find and kill process using port 11434 (Ollama)
+netstat -ano | findstr :11434
+taskkill /PID <PID> /F
 ```
+
+#### Ollama Issues
+```bash
+# Check if Ollama is running
+ollama list
+
+# Restart Ollama service
+ollama serve
+
+# If model is not found, reinstall it
+ollama pull qwen2.5-coder:7b
+
+# Check Ollama logs
+ollama logs
+```
+
+#### AI Model Not Responding
+- Ensure Ollama is running: `ollama serve`
+- Verify model is installed: `ollama list`
+- Check if the correct model is being used (qwen2.5-coder:7b)
+- Test the model directly: `ollama run qwen2.5-coder:7b "test"`
+- Check backend logs for AI communication errors
 
 #### PowerShell Issues
 - If you get `&&` operator errors, use the provided scripts or run commands separately
